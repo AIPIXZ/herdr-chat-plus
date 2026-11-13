@@ -1,4 +1,4 @@
-# Herdr Chat
+# Herdr Chat Plus layout contract
 
 Chat is a personal layout presentation, not a core mod pane. The local
 `conversation-view` stack switches between `main` (the real tab split tree)
@@ -14,7 +14,7 @@ or global bare terminal matches to guess identity.
 Opening Chat changes only the personal layout; it must never call pane.split,
 pane.zoom, terminal.park, or core doc.set. Returning to TUI selects `main` and
 focuses the original terminal without changing split proportions or zoom.
-Switching tabs/spaces leaves Chat mode. Chat has no split UI and consumes pane
+Switching tabs/spaces restores the presentation remembered for the selected terminal. Chat has no split UI and consumes pane
 structure keyboard shortcuts. Other layouts and mobile keep native terminals.
 Old Chat panes and terminal labels are not automatically migrated or deleted.
 The new-chat dialog starts one real terminal, then selects the local Chat view.
@@ -24,7 +24,7 @@ Use `--install` for a fresh installation, `--update` for file backups and update
 and `--diagnose` to verify file/header/stack routing. Never migrate sessions.
 
 User bubbles wrap actual content up to 70% of the conversation content width.
-Base text is 15 px. Image limits: messages/expanded tools 420x300, collapsed tools
+User text is 14 px; assistant text is 14.5 px. Image limits: messages/expanded tools 420x300, collapsed tools
 312x215, attachments 144x108. Preserve image aspect ratios without upscaling.
 Unwrap hc user transport envelopes and retain sender labels; filter internal
 system envelopes. Hidden Chat copies skip expensive rendering, session discovery,
@@ -39,3 +39,9 @@ new Chat uses Cmd+Shift+N / Ctrl+Shift+N.
 
 Use folderPoll for local log waits: one pending watch across fallback timeouts;
 cancel the losing timer. Promise.race alone does not cancel a pending watch.
+
+Keep generated runtime declarations out of Git. The seven mods and shared-module
+copies are listed in package.json. Canonical shared helpers live in mods/chat;
+run scripts/sync-shared.py after edits, then scripts/check.py. File preview and
+diff UI use the personal right sidebar, never terminal pane.split. A historical
+diff and current disk content must remain clearly distinct.

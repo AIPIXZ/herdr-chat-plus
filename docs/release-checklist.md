@@ -1,21 +1,31 @@
 # Herdr Chat Plus release checklist
 
-## Ready in the current checkout
+## Prepared
 
-- The five mods, layout, icons, themes, installer, recipe, original MIT license, and original-author credit are present.
-- Fresh install, file-only update with backups, and read-only diagnosis have dedicated installer modes.
-- The current Mini installation runs the Chat layout with no app errors. Codex and Claude Code are the supported transcript providers.
+- [x] Preserve naruse's MIT license and the Catppuccin palette notice.
+- [x] Product name, development version, seven-mod manifest and shared-module sources are explicit.
+- [x] Retain the `chat` runtime namespace for existing customized installations; document the upstream naming conflict.
+- [x] Exclude generated native API snapshots and local development artifacts.
+- [x] Provide structure/syntax/unit checks, optional native checks, and Linux/macOS CI.
+- [x] Keep historical screenshots in an archive; label the current layout illustration as a schematic.
+- [x] Test fresh-install refusal, backed-up file updates, shortcut preservation and read-only diagnosis in temporary app homes.
 
-## Before publishing a separate repository
+## Before the first release tag
 
-1. **Replace the gallery image.** `preview.png` and most files in `screenshots/` show the old side-by-side Chat pane. Capture a representative Chat/TUI view using a disposable conversation with no private content. Update the layout preview and README illustration together.
-2. **Decide the repository and layout identity.** The installed layout and mod names are still `chat` and `chat-*`. Keeping those names makes updating existing installations straightforward but conflicts with another `chat` layout. A distinct `chat-plus` namespace would require changing layout references, mod imports, installer paths, keys, and documentation as one migration. Choose this before the public release.
-3. **Validate the release install on a clean app home and another Mac.** Check both fresh install and update paths, remote aliases, Chat/TUI switching, Codex resume/fork, queue delivery, and image preview. The installer does not migrate old sessions.
-4. **Set release metadata.** Create the new repository, update clone links and source references, add a version tag and changelog, and document the tested Herdr App and Codex versions. There is no confirmed built-in automatic update channel for third-party layouts.
-5. **Review all asset attribution.** naruse's MIT notice and Catppuccin's palette MIT notice are included. Check any new preview or screenshot assets before publishing.
+- [ ] Create `XD-Open-Jarvis/herdr-chat-plus` with the visibility chosen by its owner; push the prepared history to `main`. Preserve the old fork remote.
+- [ ] Remove the README's unpublished-repository note after the new clone URL works.
+- [ ] Check CI on the new repository. Local checks do not prove hosted workflows have run.
+- [ ] Manually verify a fresh app home and another Mac: Chat/TUI switching, per-tab state, remote aliases/offline behavior, Codex fork/resume/new, Claude handoff, queues/retry, prompts and usage errors.
+- [ ] Manually verify file links, sidebar mode switching, hover preview scrolling, drag resizing, sticky/pushing diff headers, and image zoom/pan in light and dark themes.
+- [ ] Capture a current UI screenshot using a disposable conversation without private content. The schematic is not evidence of this validation.
+- [ ] Record actual Herdr App/Core and agent versions tested. Choose a stable version only after validation, update the changelog, then tag it.
 
-## Follow-up work after an initial release
+## Publication procedure
 
-- Add adapters for other agents, starting with Grok only after establishing reliable session identity, transcript events, input and permission handling. Paseo's ACP integration is a useful reference, but an ACP session does not automatically attach to an existing TUI.
-- Investigate transient duplication of a previous assistant reply in the screen-based live preview. The likely path is a missed Codex prompt boundary followed by cross-turn screen text being treated as new streaming text.
-- Keep terminal rendering and scrolling performance separate from layout claims; native terminal work belongs in Herdr App/Core.
+The prepared working branch is `release/herdr-chat-plus`. Use a new remote (for example `plus`) for the new repository instead of changing the old fork's `origin`, then push this branch as `main`. Do not create a stable tag or mark the native/second-Mac checklist complete merely because unit tests pass.
+
+## Later work
+
+- Add other agent adapters only after establishing identity, transcript events, input and permission handling; an ACP session is not automatically an attachment to an existing TUI.
+- Track native terminal rendering separately from layout performance.
+- Plan any future `chat-plus` runtime namespace as an explicit compatibility change. Do not mix it into a file-only update or silently migrate old sessions.

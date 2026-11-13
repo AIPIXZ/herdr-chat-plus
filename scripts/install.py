@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install/update this fork's Chat files, or diagnose an existing installation."""
+"""Install/update Herdr Chat Plus files, or diagnose an existing installation."""
 import argparse
 import hashlib
 import json
@@ -11,7 +11,8 @@ import sys
 from datetime import datetime
 
 ROOT = Path(__file__).resolve().parents[1]
-MODS = ['chat', 'chat-file', 'chat-preview', 'chat-pane', 'chat-tabs', 'spaces-chat', 'agents-chat']
+PROJECT = json.loads((ROOT/'package.json').read_text())
+MODS = PROJECT['herdr']['mods']
 
 def files():
     result = [Path('layouts/chat.json'), Path('layouts/chat.svg'),
@@ -65,7 +66,7 @@ def main():
     parser.add_argument('--home', type=Path, default=Path(os.environ.get('HERDR_APP_HOME', str(Path.home()/'.config/herdr-app'))))
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--install', action='store_true', help='fresh install; refuse existing Chat layout/mod names')
-    mode.add_argument('--update', action='store_true', help='back up and replace only this fork’s files, validate, then select chat')
+    mode.add_argument('--update', action='store_true', help='back up and replace only Herdr Chat Plus files, validate, then select chat')
     mode.add_argument('--diagnose', action='store_true', help='read-only version/file/status checks')
     args = parser.parse_args()
     home = args.home.expanduser().resolve()
@@ -78,7 +79,7 @@ def main():
         for path in mismatches:
             print('MISSING OR DIFFERENT:', path)
         if not mismatches:
-            print('All Chat layout/mod files match this checkout.')
+            print('All Herdr Chat Plus layout/mod files match this checkout.')
         run([binary, 'status'], home, check=False)
         return 1 if mismatches else 0
     if not (args.install or args.update):
@@ -90,7 +91,7 @@ def main():
                      *[Path('mods')/name for name in MODS]] if (home/path).exists()]
         if occupied:
             parser.error('Chat names already exist: '+', '.join(map(str, occupied))+'. Use --update to replace only the layout/mod files with backups.')
-    # Validate source against this Mac's runtime before touching the installed files.
+    # Validate source against the installed runtime before touching the installed files.
     for name in MODS:
         run([binary, 'check', str(ROOT/'mods'/name)], home)
     keyfile = home/'keys.json'
@@ -99,7 +100,7 @@ def main():
     key = 'cmd-shift-n' if sys.platform == 'darwin' else 'ctrl-shift-n'
     aliases = (key, 'secondary-shift-n')
     conflict = any(k in global_keys and global_keys[k] != 'mod.open:chat' for k in aliases)
-    backup = home/'backups'/('chat-customized-'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+    backup = home/'backups'/('herdr-chat-plus-'+datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
     backup.mkdir(parents=True, exist_ok=False)
     for path in files():
         target = home/path

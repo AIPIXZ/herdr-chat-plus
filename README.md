@@ -1,51 +1,62 @@
 # Herdr Chat Plus
 
-A personal [Herdr](https://herdr.dev) layout for Claude Code and Codex. Chat and TUI are two views of the same terminal: switch with the **Chat / TUI** control in the conversation header. TUI keeps Herdr’s normal split panes; Chat fills the tab locally without creating another shared pane.
+A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex terminals. **Chat / TUI** switches how you see the same running terminal. Chat does not create another shared terminal pane; TUI keeps Herdr's normal splits.
 
-Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat), with the original MIT license and attribution retained. The current development branch is `customized` in the [XD-Open-Jarvis fork](https://github.com/XD-Open-Jarvis/herdr-chat/tree/customized). A separate Herdr Chat Plus repository has not been published yet.
+Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original MIT license and author attribution are retained. Herdr Chat Plus is an independent layout project, not an official Herdr distribution.
 
-## Highlights
+![Layout schematic, not an application screenshot](layouts/chat.svg)
 
-- Catppuccin Latte and Mocha themes; the layout follows the system light/dark setting.
-- Conversation header with space name, terminal address, conversation title, agent status, search, and Chat / TUI switch.
-- Formatted replies, tool activity, image previews in a Herdr window, attachments, search, slash commands, and model controls.
-- A local follow-up queue. Pending messages survive layout reloads; delivery failures stay visible for manual retry. **Instant** sends a selected item immediately.
-- Codex fork history and conservative session binding. New Codex sessions launched from Chat include a terminal-title thread ID. Existing sessions use screen evidence or a visible `/status` panel when needed. See [identity details](docs/codex-title-identity.md).
-- Remote terminals resolve through their owning pane and tab, so connection aliases can differ between clients.
-- Change cards open every recorded file diff in one sidebar, with file headers that pin and push out as you scroll. With the sidebar closed, hovering a changed file shows an anchored, scrollable diff preview.
-- Read-only file sidebar: click a Markdown file link or a changed filename to open Markdown Preview / Source or Diff / File, with per-tab state and remote file reads.
-- Bounded file watching and suspended Chat work while TUI or another tab is visible.
+## Features
 
-## Install
+- Catppuccin light and dark themes, Markdown replies, attachments, image zoom/pan, search, slash commands, and model/effort controls.
+- One Chat view per terminal, with the owning pane and machine used to resolve remote addresses and session logs. Codex fork history and resume/new transitions are handled conservatively; [identity details](docs/codex-title-identity.md).
+- A local follow-up queue with Instant, remove, explicit failure retry, and attachments. Failed direct sends stay separate from queued follow-ups.
+- A read-only file sidebar with Markdown Preview / Source and Diff / File. Change cards open the turn's recorded diffs, with file headers that push out as you scroll; hovering a changed file previews its diff while the sidebar is closed.
+- Incremental history loading beyond the initial 4 MiB, grouped command activity, colored diffs, visible terminal prompts and usage-limit errors, and 5h/7d rings that show remaining quota.
+- Separate New Chat and New Space actions; Chat/TUI selection is remembered per terminal. Hidden Chat views suspend expensive work.
 
-Requires Herdr App with the APIs used by this layout, Python 3, and Claude Code or Codex on the machine running the agent. The current development installation has been checked with Herdr App 0.1.15 on macOS. Other versions and platforms need release validation.
+## Install and update
 
-Read `~/.config/herdr-app/AGENTS.md` on the target machine. For a new installation:
+Requirements: Herdr App, Python 3.9+, and Claude Code or Codex on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.
+
+The intended repository is `XD-Open-Jarvis/herdr-chat-plus`. These clone commands become usable after it is published:
 
 ```sh
-git clone --depth 1 --branch customized https://github.com/XD-Open-Jarvis/herdr-chat.git
-cd herdr-chat
+git clone https://github.com/XD-Open-Jarvis/herdr-chat-plus.git
+cd herdr-chat-plus
 python3 scripts/install.py --install
 ```
 
-For an existing installation, update the checkout and run `python3 scripts/install.py --update`. The installer validates the seven mods first, backs up files it replaces under `~/.config/herdr-app/backups/`, merges a nonconflicting New Chat shortcut, and selects the Chat layout. It does not migrate sessions or change core documents. A second Mac must connect to the target machine separately.
+For a checkout already on this machine:
 
-To inspect an installation without changing it, run `python3 scripts/install.py --diagnose`. `HERDR_APP_HOME` or `--home` selects another app home.
+```sh
+python3 scripts/install.py --diagnose  # read-only file/routing checks
+python3 scripts/install.py --update   # back up and replace the layout/mod files
+```
 
-## How it works
+Read `~/.config/herdr-app/AGENTS.md` before installing. `--install` refuses existing Chat names. `--update` backs up replaced files, preserves a conflicting New Chat shortcut, and selects the Chat layout. `--home PATH` or `HERDR_APP_HOME` chooses another app home. Without a mode, the installer only prints a dry run.
 
-Chat is a local presentation of the original terminal pane. Switching to Chat does not split, zoom, park, or close that pane. Other clients, including mobile, continue to see the terminal. The left sidebar has separate **New Chat** and **New Space** buttons. Images open in an internal Herdr window with zoom, pan, and Escape to close.
+The seven mods and the runtime layout still use their established names: `chat`, `chat-file`, `chat-preview`, `chat-pane`, `chat-tabs`, `spaces-chat`, and `agents-chat`. This is intentional for existing customized installations. **The package shares the `chat` namespace with the original layout; they cannot be installed side by side under those names.** No session migration or core-document reset is part of the installer. Another Mac must separately configure its connection to the terminal's machine.
 
-The seven mods are `chat`, `chat-file`, `chat-preview`, `chat-pane`, `chat-tabs`, `spaces-chat`, and `agents-chat`. See [RECIPE.md](RECIPE.md) for the layout contract. The package includes `layouts/chat.json`, `layouts/chat.svg`, two theme files, and a keybinding recipe.
+## Development
 
-## Current limitations
+Node.js 22+ and Python 3.9+ are needed for local checks. There are no npm dependencies.
 
-- ChatUI currently supports Claude Code and Codex transcripts. Other agents, including Grok, need a provider adapter.
-- An existing Codex session may require opening `/status` in TUI to establish its exact identity. The layout does not guess from the newest log file.
-- The queue is local to this Chat client. Automatic delivery requires Herdr to remain running; other clients have separate queues.
-- File previews are read-only and refresh on request. Diff shows recorded patch fragments; File shows current disk contents. Source previews are limited to 400,000 characters, and link line numbers are displayed in the path but do not yet move the editor cursor.
-- Color alpha values are supported by the layout, but the current Herdr desktop window does not provide true desktop-through transparency.
+```sh
+python3 scripts/check.py           # structure, syntax, shared copies, JS/Python tests
+python3 scripts/check.py --native  # also check all seven mods in the installed Herdr runtime
+```
 
-## Development and attribution
+See [CONTRIBUTING.md](CONTRIBUTING.md) for module ownership and shared-code rules, [RECIPE.md](RECIPE.md) for the layout contract, and the [release checklist](docs/release-checklist.md) for remaining manual validation. The version and mod manifest live in [package.json](package.json); `private: true` prevents accidental npm publication and does not control GitHub visibility.
 
-The original Herdr Chat source is by naruse under [MIT](LICENSE). Catppuccin palette values are from [Catppuccin](https://github.com/catppuccin/palette), whose [MIT notice](docs/CATPPUCCIN-LICENSE) is included. The pre-customization README is [archived here](docs/upstream-original.md). For the release work still pending, see [the release checklist](docs/release-checklist.md).
+## Limits
+
+- Transcript adapters currently support Claude Code and Codex. Other agents, including Grok, need an adapter.
+- Existing Codex terminals may require `/status` to establish identity. Chat does not choose the newest log as a substitute for identity.
+- Queue state is local to this Chat client. Automatic delivery requires Herdr running; other clients have separate queues.
+- File previews are read-only and refresh on request. Diff is the historical patch recorded in the transcript; File is current disk content. Source previews stop at 400,000 characters. Line references are displayed in the path but do not yet move the code editor cursor.
+- Native terminal drawing, scrollback and multi-client TUI behavior belong to Herdr App/Core; this layout cannot replace their renderer.
+
+## Attribution
+
+Original Herdr Chat by naruse, under [MIT](LICENSE). Catppuccin palettes retain their [MIT notice](docs/CATPPUCCIN-LICENSE). Earlier screenshots and documentation are preserved in the [historical README archive](docs/upstream-original.md), rather than presented as the current UI. Changes in this development version are listed in [CHANGELOG.md](CHANGELOG.md).

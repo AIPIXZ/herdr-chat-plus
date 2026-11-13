@@ -1,6 +1,6 @@
 # Upstream README archive
 
-The following text came from the original Herdr Chat README and documents its earlier split-pane design. The current layout is described in the repository README.
+Historical README retained from the upstream/fork development history. It describes the earlier split-pane design and is not current installation guidance. Its screenshots are archived under `upstream/`. See the [current README](../README.md) instead.
 
 # Upstream Herdr Chat
 
@@ -12,17 +12,17 @@ A chat window for [Herdr](https://herdr.dev) that sits over your Claude Code and
 - replies that stream as they're written;
 - Slack-style `:emoji` autocomplete.
 
-![Herdr with the chat beside its agent's terminal](screenshots/herdr-with-chat.png)
+![Herdr with the chat beside its agent's terminal](upstream/screenshots/herdr-with-chat.png)
 
 *Herdr with the chat open: the spaces and agents on the left, and the chat beside its agent's terminal.*
 
 | | |
 |---|---|
-| ![New chat](screenshots/new-chat.png)<br>**New chat** (⌘⇧N, or Ctrl+Shift+N on Linux and Windows): pick the agent, machine, folder, model and effort | ![The / menu](screenshots/command-menu.png)<br>**The `/` menu**: skills, the model and all commands |
-| ![Searching commands](screenshots/command-search.png)<br>**Commands** with their descriptions, arguments and aliases | ![Side chat](screenshots/side-chat.png)<br>**Side chat**: ask without interrupting the agent |
-| ![A command running](screenshots/live-command.png)<br>**Live progress**: the command running now and its output | ![Context card](screenshots/context-card.png)<br>**Cards** for context, usage, MCP servers, memory |
-| ![A terminal picker in the chat](screenshots/terminal-picker.png)<br>**Terminal pickers** as buttons, right in the chat | ![Model picker](screenshots/model-picker.png)<br>**Pick, don't type**: models, sessions, permission modes |
-| ![Emoji](screenshots/emoji.png)<br>**`:emoji`** autocomplete, like Slack | |
+| ![New chat](upstream/screenshots/new-chat.png)<br>**New chat** (⌘⇧N, or Ctrl+Shift+N on Linux and Windows): pick the agent, machine, folder, model and effort | ![The / menu](upstream/screenshots/command-menu.png)<br>**The `/` menu**: skills, the model and all commands |
+| ![Searching commands](upstream/screenshots/command-search.png)<br>**Commands** with their descriptions, arguments and aliases | ![Side chat](upstream/screenshots/side-chat.png)<br>**Side chat**: ask without interrupting the agent |
+| ![A command running](upstream/screenshots/live-command.png)<br>**Live progress**: the command running now and its output | ![Context card](upstream/screenshots/context-card.png)<br>**Cards** for context, usage, MCP servers, memory |
+| ![A terminal picker in the chat](upstream/screenshots/terminal-picker.png)<br>**Terminal pickers** as buttons, right in the chat | ![Model picker](upstream/screenshots/model-picker.png)<br>**Pick, don't type**: models, sessions, permission modes |
+| ![Emoji](upstream/screenshots/emoji.png)<br>**`:emoji`** autocomplete, like Slack | |
 
 ## What the chat does that the terminal can't
 

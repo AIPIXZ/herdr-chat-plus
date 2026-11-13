@@ -4,7 +4,9 @@ A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex te
 
 Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original MIT license and author attribution are retained. Herdr Chat Plus is an independent layout project, not an official Herdr distribution.
 
-![Layout schematic, not an application screenshot](layouts/chat.svg)
+![Herdr Chat Plus in dark theme](screenshots/chat-dark.png)
+
+![Herdr Chat Plus in light theme](screenshots/chat-light.png)
 
 ## Features
 
@@ -19,10 +21,10 @@ Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original
 
 Requirements: Herdr App, Python 3.9+, and Claude Code or Codex on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.
 
-The repository is currently private; cloning requires access to `XD-Open-Jarvis/herdr-chat-plus`:
+Project repository: [AIPIXZ/herdr-chat-plus](https://github.com/AIPIXZ/herdr-chat-plus). Organization access is required while the repository is private.
 
 ```sh
-git clone https://github.com/XD-Open-Jarvis/herdr-chat-plus.git
+git clone https://github.com/AIPIXZ/herdr-chat-plus.git
 cd herdr-chat-plus
 python3 scripts/install.py --install
 ```

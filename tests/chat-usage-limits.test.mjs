@@ -103,14 +103,17 @@ test('the transcript retains rate-limit event time rather than the time an old l
  const t=new Transcript('codex');t.feed(JSON.stringify({type:'event_msg',timestamp:'2026-11-01T00:00:00Z',payload:{type:'token_count',rate_limits:quota(80)}}));
  assert.equal(t.limitsTimestamp,Date.parse('2026-11-01T00:00:00Z'));
 });
-test('expired historical log rate limits whose resets_at passed are reset on binding',async()=>{
- const s=setup({query:()=>new Promise(()=>{})});
- s.view.t={limits:{primary:{used_percent:95,resets_at:900},secondary:{used_percent:60,resets_at:2000}},limitsTimestamp:500000};
+test('transient foreground pid and cwd changes on the same terminal do not discard in-flight account queries',async()=>{
+ let resolve;const waiting=new Promise(done=>resolve=done);
+ const s=setup({query:()=>waiting});
+ s.term.cwd=null;
  s.view.loadUsageLimits(s.term,'codex',s.cx);
- const snap=s.view.currentUsageSnapshot();
- assert.equal(snap.limits.fiveHour.pct,0);
- assert.equal(snap.limits.fiveHour.resetsAt,null);
- assert.equal(snap.limits.sevenDay.pct,60);
+ s.term.foreground.pid=99;s.term.cwd='/repo/subdir';
+ s.view.loadUsageLimits(s.term,'codex',s.cx);
+ resolve([{rateLimits:quota(18)}]);await s.flush();
+ assert.equal(s.calls(),1);
+ assert.equal(s.view.currentUsageSnapshot().source,'api');
+ assert.equal(s.view.currentUsageSnapshot().limits.fiveHour.pct,18);
 });
 test('fresh API limits are shared via chat.usageLimits across independent Chat instances',async()=>{
  const sharedState=new Map();

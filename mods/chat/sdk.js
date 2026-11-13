@@ -7,12 +7,49 @@ import { exec } from "herdr";
 // Sends each request in argv[3] (a JSON array) and prints the answers, plus
 // the newest command list Claude announced: it adds plugins' and MCP servers'
 // commands a moment after starting, so with settle > 0 it waits that long for them.
+const BIN_RESOLVER_PY = `
+import glob, os, re, shutil, subprocess
+_home = os.path.expanduser("~")
+_ver_key = lambda s: [int(x) if x.isdigit() else x for x in re.split(r"([0-9]+)", s)]
+_extra_dirs = (
+    [
+        os.path.join(_home, ".local/bin"),
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        os.path.join(_home, ".volta/bin"),
+        os.path.join(_home, ".bun/bin"),
+        os.path.join(_home, ".cargo/bin"),
+        os.path.join(_home, ".asdf/shims"),
+        os.path.join(_home, ".local/share/mise/shims"),
+    ]
+    + sorted(glob.glob(os.path.join(_home, ".nvm/versions/node/*/bin")), key=_ver_key, reverse=True)
+    + sorted(glob.glob(os.path.join(_home, ".fnm/node-versions/*/installation/bin")), key=_ver_key, reverse=True)
+    + sorted(glob.glob(os.path.join(_home, ".local/share/fnm/node-versions/*/installation/bin")), key=_ver_key, reverse=True)
+)
+os.environ["PATH"] = os.pathsep.join([d for d in _extra_dirs if os.path.isdir(d)] + [os.environ.get("PATH", "")])
+def resolve_bin(name):
+    found = shutil.which(name)
+    if found: return found
+    sh = os.environ.get("SHELL") or ("/bin/zsh" if os.path.exists("/bin/zsh") else "/bin/sh")
+    try:
+        r = subprocess.run([sh, "-lic", f"command -v {name}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=5)
+        lines = [line.strip() for line in (r.stdout or "").splitlines() if line.strip()]
+        if lines and os.path.isfile(lines[-1]): return lines[-1]
+    except Exception: pass
+    return name
+`;
+
 const PY = `
-import json, os, signal, subprocess, sys, threading, time, select
+import json, signal, sys, threading, time, select
+${BIN_RESOLVER_PY}
 folder, sid, reqs, timeout, settle, delay = sys.argv[1], sys.argv[2], json.loads(sys.argv[3]), min(float(sys.argv[4]), 28.0), float(sys.argv[5]), float(sys.argv[6])
-args = ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
+args = [resolve_bin("claude"), "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
 if sid: args += ["--resume", sid, "--fork-session"]
-p = subprocess.Popen(args, cwd=folder or None, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+run_cwd = folder if (folder and os.path.isdir(folder)) else None
+try:
+    p = subprocess.Popen(args, cwd=run_cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+except Exception as e:
+    print(json.dumps({"out": [{"error": str(e)} for _ in reqs], "commands": None})); sys.stdout.flush(); os._exit(0)
 def stop_proc():
     try: os.killpg(p.pid, signal.SIGKILL)
     except Exception:
@@ -117,9 +154,14 @@ export async function listSessions(folder, on) {
 // Codex: the same through its app-server (JSON-RPC over stdio), as the
 // ChatGPT app does. Each call starts one, asks, and stops it.
 const CODEX_PY = `
-import json, signal, subprocess, sys, threading, os
+import json, signal, sys, threading
+${BIN_RESOLVER_PY}
 cwd, mode, arg = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
-p = subprocess.Popen(["codex", "app-server"], cwd=cwd or None, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+run_cwd = cwd if (cwd and os.path.isdir(cwd)) else None
+try:
+    p = subprocess.Popen([resolve_bin("codex"), "app-server"], cwd=run_cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+except Exception as e:
+    print(json.dumps({"error": str(e)})); sys.stdout.flush(); os._exit(0)
 def stop_proc():
     try: os.killpg(p.pid, signal.SIGKILL)
     except Exception:

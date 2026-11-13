@@ -151,27 +151,12 @@ function normalizeRateLimits(raw) {
   return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
 }
 
-function activeRateLimits(limits, source, now = Date.now()) {
-  if (!limits || source !== "log") return limits;
-  const fresh = (w) => {
-    if (!w) return null;
-    const at = w.resetsAt;
-    if (at == null || at === "") return w;
-    const resetMs = typeof at === "number" ? at * (at < 1e12 ? 1000 : 1) : Date.parse(at);
-    return Number.isFinite(resetMs) && resetMs > 0 && resetMs <= now ? { pct: 0, resetsAt: null } : w;
-  };
-  const fiveHour = fresh(limits.fiveHour);
-  const sevenDay = fresh(limits.sevenDay);
-  return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
-}
-
 function usageSnapshot(raw, fetchedAt = 0, source = "cache") {
-  const actualSource = raw?.limits ? raw.source ?? source : source;
-  const limits = activeRateLimits(normalizeRateLimits(raw?.limits ?? raw), actualSource);
+  const limits = normalizeRateLimits(raw?.limits ?? raw);
   if (!limits) return null;
   const at = raw?.limits ? raw.fetchedAt : fetchedAt;
   return {limits, fetchedAt: Number.isFinite(at) && at <= Date.now() ? Math.max(0, at) : 0,
-    source: actualSource};
+    source: raw?.limits ? raw.source ?? source : source};
 }
 
 function latestUsageSnapshot(first, second) {
@@ -512,8 +497,8 @@ export default class Chat extends View {
     const folder = term?.foreground?.cwd ?? term?.cwd ?? null;
     const target = term?.address ?? this.term;
     const on = machineOf(target);
-    const key = ["codex", "claude"].includes(kind) && folder ? `${kind}|${on ?? ""}` : null;
-    const context = key ? JSON.stringify([key,target,term?.foreground?.pid,folder]) : null;
+    const key = ["codex", "claude"].includes(kind) ? `${kind}|${on ?? ""}` : null;
+    const context = key ? JSON.stringify([key,target]) : null;
     if (context !== this.limitsContext) {
       this.limitsContext = context;
       this.limitsKey = key;

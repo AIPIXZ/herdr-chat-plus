@@ -3001,7 +3001,7 @@ export default class Chat extends View {
         .child(div().min_w(0).truncate().child(label))
         .child(svg(`mods/chat/icons/${open ? "chevron-down" : "chevron"}.svg`).size(12).flex_none())
         .when(running, (el) => el.child(div().flex_none().text_color(t.working).frames(SPINNER, 90))))
-      .when(!open && thumbs.length > 0, (el) => el.child(h_flex().pl(16).gap(6).children(thumbs.map((i) => this.img(i.ref, t, 312, 215)))))
+      .when(!open && thumbs.length > 0, (el) => el.child(h_flex().w_full().min_w(0).flex_wrap().pl(16).gap(6).children(thumbs.map((i) => this.img(i.ref, t, 312, 215)))))
       .when(open, (el) => el.children((visible.length ? visible : described).map((i, n) => this.tool(e.key, i.id ?? n, i, t))));
   }
 

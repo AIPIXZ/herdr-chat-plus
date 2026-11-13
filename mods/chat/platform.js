@@ -18,6 +18,32 @@ export async function copyText(text) {
   return r.code === 0;
 }
 
+// Puts an image file on the clipboard as PNG/TIFF; false on failure, "missing" when no tool is installed.
+export async function copyImage(path) {
+  const r = await sh(`
+    if command -v osascript >/dev/null 2>&1; then
+      osascript - "$1" >/dev/null 2>&1 <<'APPLESCRIPT'
+use framework "AppKit"
+use scripting additions
+on run argv
+  set img to current application's NSImage's alloc()'s initWithContentsOfFile:(item 1 of argv)
+  if img is missing value then error "invalid image"
+  set tiffData to img's TIFFRepresentation()
+  set rep to current application's NSBitmapImageRep's imageRepWithData:tiffData
+  set pngData to rep's representationUsingType:(current application's NSPNGFileType) |properties|:(missing value)
+  set pb to current application's NSPasteboard's generalPasteboard()
+  pb's clearContents()
+  pb's setData:pngData forType:(current application's NSPasteboardTypePNG)
+  pb's setData:tiffData forType:(current application's NSPasteboardTypeTIFF)
+end run
+APPLESCRIPT
+    elif [ -n "$WAYLAND_DISPLAY" ] && command -v wl-copy >/dev/null 2>&1; then wl-copy --type image/png < "$1"
+    elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard -t image/png -i "$1"
+    elif command -v wl-copy >/dev/null 2>&1; then wl-copy --type image/png < "$1"
+    else exit 3; fi`, path);
+  return r.code === 3 ? "missing" : r.code === 0;
+}
+
 // Saves an image on the clipboard to `path` as PNG: true, false when there's
 // none, or "missing" when this desktop has no tool to read it.
 export async function pasteImage(path) {

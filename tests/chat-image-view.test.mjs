@@ -24,3 +24,11 @@ test('zoom respects limits and actual size remains available',()=>{
  v.zoomImage(.001,{notify(){}});assert.equal(v.imageScale,.1);
  v.zoomImage(1,{notify(){}});assert.equal(v.imageScale,1);
 });
+test('image preview window avoids outer rectangular clipping and exposes copy controls',()=>{
+ const raw=readFileSync(new URL('../mods/chat-file/main.js',import.meta.url),'utf8');
+ assert.match(raw,/id\("image-overlay-pad"\)/);
+ assert.doesNotMatch(raw,/id\("image-window"\)\.size_full\(\)\.rounded\(18\)\.overflow_hidden\(\)/);
+ assert.match(raw,/id\("image-viewport"\)[\s\S]*\.rounded\(12\)\.overflow_hidden\(\)/);
+ assert.match(raw,/id\("image-zoom-controls"\)[\s\S]*button\("image-copy"/);
+ assert.match(raw,/chat_image_copy/);
+});

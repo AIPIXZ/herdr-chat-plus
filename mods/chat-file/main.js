@@ -2,9 +2,34 @@
 // dialog with the file, Save (⌘S) and Close. Props: { file, title, overlay }.
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { props, theme, settings, readTextFile, writeTextFile, closeOverlay, exec } from "herdr";
+import { props, theme, settings, readTextFile, writeTextFile, closeOverlay, openOverlay, notify, appHome, exec } from "herdr";
 
 const LANG = { md: "markdown", json: "json", toml: "toml", js: "javascript", sh: "bash", yaml: "yaml", yml: "yaml" };
+
+async function copyImageFile(path) {
+  const r = await exec("sh", ["-c", `
+    if command -v osascript >/dev/null 2>&1; then
+      osascript - "$1" >/dev/null 2>&1 <<'APPLESCRIPT'
+use framework "AppKit"
+use scripting additions
+on run argv
+  set img to current application's NSImage's alloc()'s initWithContentsOfFile:(item 1 of argv)
+  if img is missing value then error "invalid image"
+  set tiffData to img's TIFFRepresentation()
+  set rep to current application's NSBitmapImageRep's imageRepWithData:tiffData
+  set pngData to rep's representationUsingType:(current application's NSPNGFileType) |properties|:(missing value)
+  set pb to current application's NSPasteboard's generalPasteboard()
+  pb's clearContents()
+  pb's setData:pngData forType:(current application's NSPasteboardTypePNG)
+  pb's setData:tiffData forType:(current application's NSPasteboardTypeTIFF)
+end run
+APPLESCRIPT
+    elif [ -n "$WAYLAND_DISPLAY" ] && command -v wl-copy >/dev/null 2>&1; then wl-copy --type image/png < "$1"
+    elif command -v xclip >/dev/null 2>&1; then xclip -selection clipboard -t image/png -i "$1"
+    elif command -v wl-copy >/dev/null 2>&1; then wl-copy --type image/png < "$1"
+    else exit 3; fi`, "sh", path]);
+  return r.code === 3 ? "missing" : r.code === 0;
+}
 
 const REMOTE_SAVE_PY = `
 import json, os, pathlib, sys, tempfile
@@ -44,14 +69,20 @@ export function imageBounds(viewport, width, height, scale, offset) {
 export default class ChatFile extends View {
   init(_props, cx) {
     const p = props() ?? {};
+    if (p.imageMenu) return;
     if (p.image) {
       this.imageFocus = cx.focus_handle();
       this.imageFocus.focus();
-      cx.bind_keys([{ keystroke: "escape", action: "chat_image_close", context: "ChatImage" }]);
-      this.viewport = { width: 860, height: 610 };
+      cx.bind_keys([
+        { keystroke: "escape", action: "chat_image_close", context: "ChatImage" },
+        { keystroke: "cmd-c", action: "chat_image_copy", context: "ChatImage" },
+        { keystroke: "ctrl-c", action: "chat_image_copy", context: "ChatImage" },
+      ]);
+      this.viewport = { width: 828, height: 572 };
       this.imageScale = null; // null follows the window's fit size
       this.imageOffset = { x: 0, y: 0 };
       this.imageDrag = null;
+      this.imageCopied = false;
       return;
     }
     this.file = p.file;
@@ -115,6 +146,38 @@ export default class ChatFile extends View {
     cx.notify();
   }
 
+  copyCurrentImage(cx, closeAfter = false) {
+    const p = props() ?? {};
+    const path = p.imagePath || (p.image ? `${appHome()}/${p.image}` : null);
+    if (!path) return;
+    cx.spawn(async (cx) => {
+      const ok = await copyImageFile(path);
+      if (ok === "missing") {
+        notify({ title: "No clipboard tool", body: "Install wl-clipboard or xclip to copy images", level: "warning", timeout: 4000 });
+      } else if (ok) {
+        this.imageCopied = true;
+        notify({ title: "Copied image", timeout: 1800 });
+        cx.notify();
+        if (closeAfter && p.overlay) { closeOverlay(p.overlay); return; }
+        await cx.timer.after(1500);
+        this.imageCopied = false;
+        cx.notify();
+      } else {
+        notify({ title: "Couldn't copy image", level: "warning", timeout: 3000 });
+      }
+    });
+  }
+
+  imageMenuView(p, t) {
+    return v_flex().id("image-context-menu").size_full().p(4).bg(t.popover).text_color(t.foreground).text_size(12.5)
+      .child(h_flex().id("menu-copy-image").h(28).px(10).gap(8).items_center().rounded(6).cursor_pointer()
+        .hover(s => s.bg(t.hover))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); this.copyCurrentImage(cx, true); })
+        .child(div().flex_1().child("Copy image"))
+        .child(div().text_size(11).text_color(t.dim).child("⌘C")));
+  }
+
   imageView(p, t) {
     const fit = imageFit(this.viewport, p.imageWidth, p.imageHeight);
     const scale = this.imageScale ?? fit;
@@ -123,17 +186,18 @@ export default class ChatFile extends View {
       .flex().items_center().justify_center().cursor_pointer().text_size(12).tooltip(tip)
       .hover(s => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); action(cx); }).child(text);
-    return v_flex().id("image-window").size_full().rounded(18).overflow_hidden()
+    const card = v_flex().id("image-window").size_full().rounded(18)
       .border_1().border_color(t.border).shadow_lg().bg(t.background).text_color(t.foreground)
       .track_focus(this.imageFocus).key_context("ChatImage")
       .on_action("chat_image_close", (_event, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); })
+      .on_action("chat_image_copy", (_event, cx) => { cx.stop_propagation(); this.copyCurrentImage(cx); })
       .on_mouse_down("left", () => this.imageFocus.focus())
       .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); })
       .child(h_flex().h(40).px(14).gap(4).items_center().flex_none()
         .child(div().flex_1().min_w(0).truncate().text_size(13).child(p.title ?? "Image"))
         .child(button("close-image", "×", "Close", () => closeOverlay(p.overlay))))
-      .child(div().id("image-viewport").relative().flex_1().min_h(0).overflow_hidden()
-        .tooltip("Scroll to zoom · Drag to pan")
+      .child(div().id("image-viewport").relative().flex_1().min_h(0).mx(6).mb(6).rounded(12).overflow_hidden()
+        .tooltip("Scroll to zoom · Drag to pan · Right-click or ⌘C to copy")
         .on_size_change((size, cx) => {
           if (size.width !== this.viewport.width || size.height !== this.viewport.height) {
             this.viewport = size; cx.notify();
@@ -145,11 +209,16 @@ export default class ChatFile extends View {
         })
         .on_mouse_down("left", (event, cx) => {
           cx.stop_propagation();
+          this.imageFocus.focus();
           if (event.click_count === 2) {
             this.imageScale = this.imageScale === null ? 1 : null;
             this.imageOffset = { x: 0, y: 0 }; cx.notify(); return;
           }
           this.imageDrag = { start: event.position, x: bounds.x, y: bounds.y };
+        })
+        .on_mouse_down("right", (_event, cx) => {
+          cx.stop_propagation();
+          openOverlay({ mod: "chat-file", kind: "popup", width: 150, height: 36, props: { imageMenu: true, image: p.image, imagePath: p.imagePath } });
         })
         .on_mouse_move((event, cx) => {
           if (!this.imageDrag) return;
@@ -171,12 +240,16 @@ export default class ChatFile extends View {
         .child(button("image-fit", svg("mods/chat-file/fit.svg").size(16), "Fit to window", cx => {
           this.imageScale = null; this.imageOffset = { x: 0, y: 0 }; cx.notify();
         }))
+        .child(div().w(1).h(16).mx(2).bg(t.border))
+        .child(button("image-copy", this.imageCopied ? "Copied" : "Copy", "Copy image (⌘C)", cx => this.copyCurrentImage(cx)))
         ));
+    return div().id("image-overlay-pad").size_full().p(16).child(card);
   }
 
   render() {
     const t = theme();
     const p = props() ?? {};
+    if (p.imageMenu) return this.imageMenuView(p, t);
     if (p.image) return this.imageView(p, t);
     const btn = (id, label, action, primary) => div().id(id).px(12).py(5).rounded(7).cursor_pointer().text_size(12.5)
       .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground)

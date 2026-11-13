@@ -61,7 +61,7 @@ def main():
         shutil.copy2(ROOT/path, target)
     revision = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True)
     receipt = {'project': 'herdr-chat-plus', 'source': str(ROOT),
-               'repository': 'https://github.com/XD-Open-Jarvis/herdr-chat-plus',
+               'repository': 'https://github.com/AIPIXZ/herdr-chat-plus',
                'revision': revision.stdout.strip() if revision.returncode == 0 else None,
                'files': {str(path): install.digest(ROOT/path) for path in mod_files()}}
     (home/RECEIPT).parent.mkdir(parents=True, exist_ok=True)

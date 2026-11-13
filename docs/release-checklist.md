@@ -7,14 +7,17 @@
 - [x] Retain the `chat` runtime namespace for existing customized installations; document the upstream naming conflict.
 - [x] Exclude generated native API snapshots and local development artifacts.
 - [x] Provide structure/syntax/unit checks, optional native checks, and Linux/macOS CI.
-- [x] Keep historical screenshots in an archive; label the current layout illustration as a schematic.
+- [x] Keep historical screenshots in an archive and use current dark/light screenshots in README.
 - [x] Test fresh-install refusal, backed-up file updates, shortcut preservation and read-only diagnosis in temporary app homes.
 
 ## Before the first release tag
 
+- [x] Add user-selected dark/light screenshots to README and a root `preview.png` for Gallery indexing.
+- [x] Publish `AIPIXZ/herdr-chat-plus` and enable Gallery discovery with the `herdr-layout` topic.
+
 - [x] Create the private `XD-Open-Jarvis/herdr-chat-plus` repository and push the prepared history to `main`, preserving the old fork remote.
-- [x] Replace the unpublished-repository note with private-repository access instructions.
-- [ ] Check CI on the new repository. Local checks do not prove hosted workflows have run.
+- [x] Point public installation and repository links to AIPIXZ.
+- [ ] Check CI on the AIPIXZ repository. Local checks do not prove hosted workflows have run.
 - [ ] Manually verify a fresh app home and another Mac: Chat/TUI switching, per-tab state, remote aliases/offline behavior, Codex fork/resume/new, Claude handoff, queues/retry, prompts and usage errors.
 - [ ] Manually verify file links, sidebar mode switching, hover preview scrolling, drag resizing, sticky/pushing diff headers, and image zoom/pan in light and dark themes.
 - [ ] Capture a current UI screenshot using a disposable conversation without private content. The schematic is not evidence of this validation.
@@ -22,7 +25,7 @@
 
 ## Publication procedure
 
-The prepared working branch is `release/herdr-chat-plus`. Use a new remote (for example `plus`) for the new repository instead of changing the old fork's `origin`, then push this branch as `main`. Do not create a stable tag or mark the native/second-Mac checklist complete merely because unit tests pass.
+The prepared working branch is `release/herdr-chat-plus`. Use the `aipixz` remote for the public organization repository and push this branch as `main`. Keep the earlier `origin` and private `plus` remotes intact. Do not create a stable tag or mark the native/second-Mac checklist complete merely because unit tests pass.
 
 ## Later work
 

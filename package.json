@@ -83,5 +83,10 @@
         ]
       }
     ]
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AIPIXZ/herdr-chat-plus.git"
+  },
+  "homepage": "https://github.com/AIPIXZ/herdr-chat-plus#readme"
 }

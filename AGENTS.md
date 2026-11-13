@@ -1,7 +1,8 @@
 # Herdr Chat Plus development
 
 This is the canonical product checkout. Its repository is
-`XD-Open-Jarvis/herdr-chat-plus`, remote `plus`, branch `main` on GitHub.
+`AIPIXZ/herdr-chat-plus`, remote `aipixz`, branch `main` on GitHub.
+The existing `plus` remote points to the earlier private backup repository.
 The older sibling checkout `herdr-chat` / `customized` is historical and must
 not be used to deploy over this package. It shares runtime mod names, so doing
 so silently replaces Plus fixes while leaving orphaned helper files behind.

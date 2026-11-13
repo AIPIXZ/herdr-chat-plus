@@ -10,18 +10,16 @@ Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original
 
 ## Features
 
-- Catppuccin light and dark themes, Markdown replies, attachments, image zoom/pan, search, slash commands, and model/effort controls.
-- One Chat view per terminal, with the owning pane and machine used to resolve remote addresses and session logs. Codex fork history and resume/new transitions are handled conservatively; [identity details](docs/codex-title-identity.md).
-- A local follow-up queue with Instant, remove, explicit failure retry, and attachments. Failed direct sends stay separate from queued follow-ups.
-- A read-only file sidebar with Markdown Preview / Source and Diff / File. Change cards open the turn's recorded diffs, with file headers that push out as you scroll; hovering a changed file previews its diff while the sidebar is closed.
-- Incremental history loading beyond the initial 4 MiB, grouped command activity, colored diffs, visible terminal prompts and usage-limit errors, and 5h/7d rings that show remaining quota.
-- Separate New Chat and New Space actions; Chat/TUI selection is remembered per terminal. Hidden Chat views suspend expensive work.
+- **Chat and TUI, one agent.** Switch views of the same Claude Code or Codex terminal, including agents on remote machines.
+- **Files and changes beside the conversation.** Preview Markdown, source files and recorded diffs in a sidebar; hover a changed file for a quick diff preview.
+- **Follow-ups without interrupting.** Queue messages while the agent works, send a selected message instantly, and retry failed deliveries.
+- **A comfortable native chat UI.** Rich Markdown, attachments, image preview with zoom and copy, and matching Catppuccin light and dark themes.
 
 ## Install and update
 
 Requirements: Herdr App, Python 3.9+, and Claude Code or Codex on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.
 
-Project repository: [AIPIXZ/herdr-chat-plus](https://github.com/AIPIXZ/herdr-chat-plus). Organization access is required while the repository is private.
+Project repository: [AIPIXZ/herdr-chat-plus](https://github.com/AIPIXZ/herdr-chat-plus).
 
 ```sh
 git clone https://github.com/AIPIXZ/herdr-chat-plus.git
@@ -53,7 +51,7 @@ python3 scripts/check.py           # structure, syntax, shared copies, JS/Python
 python3 scripts/check.py --native  # also check all seven mods in the installed Herdr runtime
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for module ownership and shared-code rules, [RECIPE.md](RECIPE.md) for the layout contract, and the [release checklist](docs/release-checklist.md) for remaining manual validation. The version and mod manifest live in [package.json](package.json); `private: true` prevents accidental npm publication and does not control GitHub visibility.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for module ownership and shared-code rules, [RECIPE.md](RECIPE.md) for the layout contract, and the [release checklist](docs/release-checklist.md) for remaining manual validation. The version and mod manifest live in [package.json](package.json); `private: true` prevents accidental npm publication; the GitHub repository is public.
 
 ## Limits
 

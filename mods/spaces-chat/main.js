@@ -19,6 +19,14 @@ function find(node, id) {
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
 const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
+// To the rail (56px on macOS), or back to the width it had.
+function toggleSidebar() {
+  const width = find(layout(), "sidebar")?.size?.px;
+  if (!narrow()) setShared("sidebar.width", width);
+  setShared("sidebar.collapsed", !narrow());
+  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 56 : 44 });
+}
+
 // Where a space is now: its first terminal's live folder, else where it was made.
 // `ps`: panes(), read once by the caller (each read copies every pane).
 function place(s, ps) {
@@ -308,7 +316,7 @@ export default class Spaces extends View {
       return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
         || spaces().some(s => (s.machine ?? null) === m && !this.shown.has(s.id));
     };
-    const loadingRow = m => div().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(8).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
+    const loadingRow = m => h_flex().id(`machine-loading-${m ?? "local"}`).h(28).flex_none().px(collapsed ? 0 : 8).items_center().when(collapsed, el => el.justify_center()).text_size(12).text_color(t.dim).child(collapsed ? "…" : "Loading…");
     if (!remote.length) return loading(null) && !rows.length ? [loadingRow(null)] : rows.map(draw);
     const machineNames = [null, ...remote];
     return machineNames.flatMap((m) => {
@@ -318,7 +326,8 @@ export default class Spaces extends View {
       const connected = !m || machine?.state === "connected";
       const rebuilt = this.rebuilt(machine) || !!repair;
       const folded = this.folded.has(m);
-      const head = h_flex().id(`machine-${m ?? "local"}`).h(26).flex_none().px(collapsed ? 2 : 8).gap(7).items_center().text_size(11).text_color(t.dim)
+      const head = h_flex().id(`machine-${m ?? "local"}`).h(26).flex_none().px(collapsed ? 0 : 8).gap(7).items_center().text_size(11).text_color(t.dim)
+        .when(collapsed, el => el.justify_center().tooltip(m ?? "This computer"))
         .cursor_pointer().hover(s => s.bg(t.hover))
         .on_click((_e, cx) => {
           folded ? this.folded.delete(m) : this.folded.add(m);
@@ -339,7 +348,8 @@ export default class Spaces extends View {
             .on_click((_e, cx) => { cx.stop_propagation(); run("space.new", { machine: m }); }).child("+")))
           .child(div().size(6).rounded(3).flex_none().bg(connected ? t.ansi2 : t.dim))
           .child(svg(`mods/workspace-chrome/chevron-${folded ? "right" : "down"}.svg`).size(11).flex_none()));
-      const empty = h_flex().id(`machine-new-${m ?? "local"}`).h(28).flex_none().px(8).gap(7).items_center().rounded(7)
+      const empty = h_flex().id(`machine-new-${m ?? "local"}`).h(28).flex_none().px(collapsed ? 0 : 8).gap(7).items_center().rounded(7)
+        .when(collapsed, el => el.justify_center().tooltip("New space there"))
         .text_size(12).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
         .on_click(() => run("space.new", { machine: m }))
         .child(svg("mods/workspace-chrome/plus.svg").size(12)).when(!collapsed, el => el.child("New space there"));
@@ -427,18 +437,28 @@ export default class Spaces extends View {
       );
   }
 
-  compact({ w, i }, t) {
+  compact({ w, tree }, t) {
+    const colors = shared("space.colors") ?? {};
+    const color = colors[w.id] ?? "ansi6";
+    const fill = color.startsWith("#") ? color : (MARK[color] ?? t[color]);
+    const badge = tree
+      ? h_flex().size(18).flex_none().items_center().justify_center().child(svg("mods/workspace-chrome/branch.svg").size(13).text_color(t.dim))
+      : h_flex().size(18).flex_none().rounded(5).bg(fill).items_center().justify_center().text_size(10.5).font_bold().text_color("#ffffff").child([...w.name][0]?.toUpperCase() ?? "?");
     return h_flex()
       .id(`space-${w.id}`)
-      .h(26)
+      .h(28)
+      .px(4)
       .flex_none()
+      .items_center()
       .justify_center()
-      .gap(4)
-      .when(w.active, (el) => el.bg(t.raised))
-      .hover((s) => s.bg(t.hover))
+      .rounded(6)
+      .cursor_pointer()
+      .tooltip(w.name)
+      .when(w.active, (el) => el.bg(t.selected))
+      .when(!w.active, (el) => el.hover((s) => s.bg(t.hover)))
+      .on_mouse_down("right", () => this.menu(w))
       .on_click(() => run("space.select", { id: w.id }))
-      .child(div().text_color(w.active ? t.foreground : t.muted).child(String(i + 1)))
-      .child(div().text_color(tone(t, w.status)).child(glyph(w.status)));
+      .child(badge);
   }
 
   render() {
@@ -457,17 +477,25 @@ export default class Spaces extends View {
     }
     if (changed) setShared("space.colors", kept);
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
-      .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
-        .when(!collapsed, el => el.child("Spaces"))
-        .child(h_flex().flex_none().items_center().gap(2)
-          .child(div().id("chat-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
-            .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New chat")
-            .on_click(() => newChat(sp.find(s => s.active)?.machine ?? null))
-            .child(svg("mods/spaces-chat/new-chat.svg").size(14)))
-          .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
-            .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New space")
-            .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14)))))
-      .child(v_flex().flex_1().min_h(0).px(8).pb(14).overflow_y_scrollbar().mode("always")
+      .child(h_flex().h(31).pl(collapsed ? 0 : 16).pr(collapsed ? 0 : 10).items_center().justify_between().text_size(11.5).text_color(t.dim)
+        .when(collapsed, el => el.justify_center()
+          .child(div().id("sidebar-toggle").size(26).flex_none().flex().items_center().justify_center().rounded(6)
+            .text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
+            .tooltip("Expand sidebar")
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click(toggleSidebar)
+            .child(svg("mods/workspace-chrome/sidebar.svg").size(15))))
+        .when(!collapsed, el => el
+          .child("Spaces")
+          .child(h_flex().flex_none().items_center().gap(2)
+            .child(div().id("chat-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
+              .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New chat")
+              .on_click(() => newChat(sp.find(s => s.active)?.machine ?? null))
+              .child(svg("mods/spaces-chat/new-chat.svg").size(14)))
+            .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
+              .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New space")
+              .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))))
+      .child(v_flex().flex_1().min_h(0).px(collapsed ? 4 : 8).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
         .children(this.grouped(t, collapsed)));
   }

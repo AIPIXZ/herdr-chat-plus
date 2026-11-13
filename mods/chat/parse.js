@@ -536,7 +536,11 @@ export class Transcript {
       const total = p.info?.total_token_usage;
       if (total) this.tokens = { [this.model ?? "codex"]: { input: total.input_tokens ?? 0, output: (total.output_tokens ?? 0) + (total.reasoning_output_tokens ?? 0) } };
       if (p.info) this.context = { used: p.info.last_token_usage?.total_tokens ?? 0, window: p.info.model_context_window ?? null };
-      if (p.rate_limits) this.limits = p.rate_limits;
+      if (p.rate_limits) {
+        this.limits = p.rate_limits;
+        const timestamp = typeof d.timestamp === "number" ? d.timestamp : Date.parse(d.timestamp);
+        this.limitsTimestamp = Number.isFinite(timestamp) ? timestamp : 0;
+      }
       return;
     }
     if (d.type === "event_msg" && p.type === "agent_reasoning") {

@@ -151,6 +151,24 @@ function normalizeRateLimits(raw) {
   return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
 }
 
+function usageSnapshot(raw, fetchedAt = 0, source = "cache") {
+  const limits = normalizeRateLimits(raw?.limits ?? raw);
+  if (!limits) return null;
+  const at = raw?.limits ? raw.fetchedAt : fetchedAt;
+  return {limits, fetchedAt: Number.isFinite(at) && at <= Date.now() ? Math.max(0, at) : 0,
+    source: raw?.limits ? raw.source ?? source : source};
+}
+
+function latestUsageSnapshot(first, second) {
+  if (!first) return second;
+  if (!second) return first;
+  if (second.fetchedAt !== first.fetchedAt) return second.fetchedAt > first.fetchedAt ? second : first;
+  const priority = {cache:0, log:1, api:2};
+  if ((priority[second.source] ?? 0) !== (priority[first.source] ?? 0))
+    return (priority[second.source] ?? 0) > (priority[first.source] ?? 0) ? second : first;
+  return JSON.stringify(first.limits) !== JSON.stringify(second.limits) ? second : first;
+}
+
 const RING_SIZE = 13;
 const RING_STROKE = 1.65;
 const RING_PATHS = new Map();
@@ -438,57 +456,87 @@ export default class Chat extends View {
     });
   }
 
-  // Fetches 5h / 7d rate limits for Claude and Codex in the background so the
-  // composer footer stays updated without waiting for /usage.
+  currentUsageSnapshot() {
+    return latestUsageSnapshot(this.rateLimitsSnapshot ?? usageSnapshot(this.rateLimits),
+      usageSnapshot(this.t?.limits, this.t?.limitsTimestamp ?? 0, "log"));
+  }
+
+  saveUsageSnapshot(snapshot, key = this.limitsKey) {
+    if (!snapshot || !key || (this.limitsKey && key !== this.limitsKey)) return false;
+    const before = this.rateLimitsSnapshot;
+    const next = latestUsageSnapshot(before, snapshot);
+    if (next === before) return false;
+    this.rateLimitsSnapshot = next;
+    this.rateLimits = next.limits;
+    if (snapshot.source === "api") { this.limitsAt = Date.now(); this.limitsRetryAt = 0; }
+    try { localStorage.setItem(`limits1:${key}`, JSON.stringify(next)); } catch {}
+    return true;
+  }
+
+  // Historical transcript limits are a timestamped fallback, never a reason
+  // to stop account queries. Capture routing before awaiting remote calls.
   loadUsageLimits(term, kind, cx, force = false) {
     const folder = term?.foreground?.cwd ?? term?.cwd ?? null;
-    const key = kind && folder ? `${kind}|${machineOf(this.term) ?? ""}` : null;
-    if (!key) { this.limitsKey = null; this.rateLimits = null; return; }
-    if (key !== this.limitsKey) {
+    const target = term?.address ?? this.term;
+    const on = machineOf(target);
+    const key = ["codex", "claude"].includes(kind) && folder ? `${kind}|${on ?? ""}` : null;
+    const context = key ? JSON.stringify([key,target,term?.foreground?.pid,folder]) : null;
+    if (context !== this.limitsContext) {
+      this.limitsContext = context;
       this.limitsKey = key;
-      this.limitsAt = 0;
-      this.limitsEpoch = 0;
-      this.limitsLoading = false;
-      try { this.rateLimits = normalizeRateLimits(JSON.parse(localStorage.getItem(`limits1:${key}`) ?? "null")); } catch { this.rateLimits = null; }
+      this.limitsGeneration = (this.limitsGeneration ?? 0) + 1;
+      this.limitsAt = 0; this.limitsRetryAt = 0; this.limitsEpoch = 0;
+      this.limitsLoading = false; this.limitsForceQueued = false;
+      try { this.rateLimitsSnapshot = usageSnapshot(JSON.parse(localStorage.getItem(`limits1:${key}`) ?? "null")); }
+      catch { this.rateLimitsSnapshot = null; }
+      this.rateLimits = this.rateLimitsSnapshot?.limits ?? null;
     }
-    if (kind === "codex" && this.t?.limits) {
-      const live = normalizeRateLimits(this.t.limits);
-      if (live) {
-        this.rateLimits = live;
-        try { localStorage.setItem(`limits1:${key}`, JSON.stringify(live)); } catch {}
-        if (!force) return;
-      }
-    }
+    if (!key) return;
+    if (this.saveUsageSnapshot(usageSnapshot(this.t?.limits, this.t?.limitsTimestamp ?? 0, "log"))) cx.notify();
     const st = this.t?.turnState ?? this.t?.codexTurn;
     const doneEpoch = (st?.stage === "completed" || st?.stage === "idle") ? (st.epoch ?? 0) : 0;
-    const stale = !this.limitsAt || Date.now() - this.limitsAt > 180000;
+    const now = Date.now();
+    const stale = !this.limitsAt || now - this.limitsAt >= 180000 || (this.limitsRetryAt && now >= this.limitsRetryAt);
     const turnDone = doneEpoch > 0 && doneEpoch !== this.limitsEpoch;
+    if (this.limitsLoading) { if (force) this.limitsForceQueued = true; return; }
     if (!force && !stale && !turnDone) return;
-    if (this.limitsLoading) return;
     this.limitsLoading = true;
-    this.limitsAt = Date.now();
+    this.limitsAt = now;
     if (doneEpoch > 0) this.limitsEpoch = doneEpoch;
+    const generation = this.limitsGeneration;
     cx.spawn(async (cx) => {
       try {
         let raw = null;
         if (kind === "codex") {
-          const [limits] = await codexCalls(folder, [["account/rateLimits/read", null]], machineOf(this.term)).catch(() => [null]);
+          const [limits] = await codexCalls(folder, [["account/rateLimits/read", null]], on).catch(() => [null]);
           raw = limits?.rateLimits ?? null;
-        } else if (kind === "claude") {
-          const [u] = await control(folder, null, [{ subtype: "get_usage" }], { on: machineOf(this.term), timeout: 25 }).catch(() => [null]);
-          raw = u?.rate_limits ?? null;
+        } else {
+          const [usage] = await control(folder, null, [{ subtype: "get_usage" }], { on, timeout: 25 }).catch(() => [null]);
+          raw = usage?.rate_limits ?? null;
         }
-        const norm = normalizeRateLimits(raw);
-        if (this.limitsKey === key && norm) {
-          this.rateLimits = norm;
-          try { localStorage.setItem(`limits1:${key}`, JSON.stringify(norm)); } catch {}
-          cx.notify();
+        if (generation !== this.limitsGeneration || this.limitsKey !== key || this.term !== target) return;
+        const snapshot = usageSnapshot(raw, Date.now(), "api");
+        this.limitsRetryAt = snapshot ? 0 : Date.now() + 30000;
+        if (this.saveUsageSnapshot(snapshot)) cx.notify();
+      } catch {
+        if (generation === this.limitsGeneration) this.limitsRetryAt = Date.now() + 30000;
+      } finally {
+        if (generation === this.limitsGeneration) {
+          this.limitsLoading = false;
+          if (this.limitsForceQueued) {
+            this.limitsForceQueued = false;
+            if (this.term === target && this.limitsKey === key) this.loadUsageLimits(this.terminal(), kind, cx, true);
+          }
         }
-      } catch {}
-      finally {
-        if (this.limitsKey === key) this.limitsLoading = false;
       }
     });
+  }
+
+  refreshUsageBinding(term, kind, file, waitingTitle, cx) {
+    const binding = file || waitingTitle ? JSON.stringify([term.address,term.foreground?.pid,file ?? `waiting:${waitingTitle}`]) : null;
+    if (!binding || binding === this.usageBinding) return;
+    this.usageBinding = binding;
+    this.loadUsageLimits(term, kind, cx, true);
   }
 
   ensureFollow(kind, cx, graceMs = 1500) {
@@ -1342,10 +1390,14 @@ export default class Chat extends View {
     this.off = 0;
     const term = this.terminal();
     const folder = term?.foreground?.cwd ?? term?.cwd ?? null;
+    const usageTarget = this.term;
     cx.spawn(async (cx) => {
       const { kind } = this.current();
       if (kind === "codex") {
-        const [limits, account] = await codexCalls(folder, [["account/rateLimits/read", null], ["account/read", {}]], machineOf(this.term)).catch(() => [null, null]);
+        const [limits, account] = await codexCalls(folder, [["account/rateLimits/read", null], ["account/read", {}]], machineOf(usageTarget)).catch(() => [null, null]);
+        if (this.term === usageTarget && limits?.rateLimits) {
+          this.saveUsageSnapshot(usageSnapshot(limits.rateLimits, Date.now(), "api"), `${kind}|${machineOf(usageTarget) ?? ""}`);
+        }
         const { cat, model, effort } = this.current();
         const ctx = this.t?.context;
         if (card === "status") Object.assign(e, { rows: [
@@ -1358,12 +1410,7 @@ export default class Chat extends View {
         else {
           const codex = limits?.rateLimits ?? this.t?.limits ?? null;
           Object.assign(e, { codex });
-          const norm = normalizeRateLimits(codex);
-          if (norm) {
-            this.rateLimits = norm;
-            const key = `${kind}|${machineOf(this.term) ?? ""}`;
-            try { localStorage.setItem(`limits1:${key}`, JSON.stringify(norm)); } catch {}
-          }
+
         }
         e.loading = false;
         return cx.notify();
@@ -1382,15 +1429,12 @@ export default class Chat extends View {
           ].filter(([, v]) => v),
         });
       } else {
-        const [u] = await control(folder, sessionOf(this.file), [{ subtype: "get_usage" }], { on: machineOf(this.term) });
+        const [u] = await control(folder, sessionOf(this.file), [{ subtype: "get_usage" }], { on: machineOf(usageTarget) });
         if (!u || u.error) e.error = u?.error ?? "No answer";
         else {
           Object.assign(e, { usage: u });
-          const norm = normalizeRateLimits(u.rate_limits);
-          if (norm) {
-            this.rateLimits = norm;
-            const key = `${kind}|${machineOf(this.term) ?? ""}`;
-            try { localStorage.setItem(`limits1:${key}`, JSON.stringify(norm)); } catch {}
+          if (this.term === usageTarget) {
+            this.saveUsageSnapshot(usageSnapshot(u.rate_limits, Date.now(), "api"), `${kind}|${machineOf(usageTarget) ?? ""}`);
           }
         }
       }
@@ -1764,6 +1808,7 @@ export default class Chat extends View {
             this.codexHandoff?.reset();
           }
           if (file && file !== this.file) this.start(file, machineOf(this.term), kind, cx);
+          this.refreshUsageBinding(term, kind, file, waitingForLog ? capturedTitle : null, cx);
           this.missing = !file && !this.file;
         } catch (e) {
           if (!stillCurrent()) return;
@@ -3403,7 +3448,8 @@ export default class Chat extends View {
   }
 
   contextBadge(t) {
-    const limits = normalizeRateLimits(this.t?.limits) ?? normalizeRateLimits(this.rateLimits);
+    const snapshot = this.currentUsageSnapshot();
+    const limits = snapshot?.limits;
     if (!limits) return null;
     const resetText = (at) => {
       if (!at) return "";

@@ -9,6 +9,7 @@ Based on the customized Herdr Chat branch through `b206ed5`.
 - Claude/Codex live handoff and visible prompts/errors, attachments, image preview, compact activity and command output.
 - Local follow-up queue, Instant, recoverable failed direct sends, and explicit retry after resuming the same session.
 - Colored recorded diffs, turn-wide diff sidebar with pushing file headers, hover diff preview, and read-only file/Markdown views.
+- Rate-limit badges refresh after binding and completed turns, keep timestamped account snapshots, and never let historical log values suppress account polling.
 - Compact model/effort selector and 5h/7d remaining-quota rings with matching normal colors and clockwise depletion.
 - Catppuccin themes, separate New Chat / New Space actions, and Agents status indicators.
 - Image file links use binary loading and a fitted sidebar image preview, with the existing zoom window available on click.

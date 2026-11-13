@@ -129,7 +129,7 @@ export default class Preview extends View {
       const at=e?.position?{x:Math.round(e.position.x),y:Math.round(e.position.y)}:undefined;
       openOverlay({mod:"chat-file",kind:"popup",width:46,height:46,frame:"none",at,props:{imageMenu:true,image:picture.rel}});
      })
-     .child(image(picture.rel).w(width).h(height))))
+     .child(image(picture.rel).w(width).h(height).rounded(8))))
    .child(div().px(12).py(8).text_size(11).text_color(t.dim).child(`${picture.w} × ${picture.h} · Click to zoom`));
  }
  markdownPreview(request,identity,key,t) {

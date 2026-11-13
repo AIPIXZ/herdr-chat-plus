@@ -245,7 +245,7 @@ export default class ChatFile extends View {
         .on_mouse_up("left", () => { this.imageDrag = null; })
         .on_hover(on => { if (!on) this.imageDrag = null; })
         .child(div().absolute().left(bounds.left).top(bounds.top).w(bounds.width).h(bounds.height)
-          .child(image(p.image).w(bounds.width).h(bounds.height)))
+          .child(image(p.image).w(bounds.width).h(bounds.height).rounded(12)))
         .child(h_flex().id("image-zoom-controls").absolute().right(12).bottom(12).gap(2).p(4).items_center()
           .rounded(8).bg(t.popover).border_1().border_color(t.border).shadow_md()
           .on_scroll_wheel((_event, cx) => cx.stop_propagation())

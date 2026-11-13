@@ -2706,7 +2706,8 @@ export default class Chat extends View {
         .text_size(11).text_color(t.dim).child(c === "failed" ? "image" : "…");
     }
     const k = Math.min(1, maxW / c.w, maxH / c.h);
-    return div().id(`img-${ref}`).cursor_pointer().rounded(8).overflow_hidden().border_1().border_color(t.border)
+    const width = Math.round(c.w * k), height = Math.round(c.h * k);
+    return div().id(`img-${ref}`).w(width + 2).h(height + 2).flex_none().cursor_pointer().rounded(8).overflow_hidden().border_1().border_color(t.border)
       .on_click(() => openOverlay({ mod: "chat-file", kind: "window",
         key: `chat-image-${ref}`, width: 900, height: 680, frame: "none",
         props: { image: c.rel, imagePath: c.abs, imageWidth: c.w, imageHeight: c.h, title: c.abs.split("/").pop() } }))
@@ -2716,7 +2717,7 @@ export default class Chat extends View {
         openOverlay({ mod: "chat-file", kind: "popup", width: 46, height: 46, frame: "none", at,
           props: { imageMenu: true, image: c.rel, imagePath: c.abs } });
       })
-      .child(image(c.rel).w(Math.round(c.w * k)).h(Math.round(c.h * k)).rounded(8));
+      .child(image(c.rel).w(width).h(height).rounded(7));
   }
 
   openFilePreview(url, cx, change = null, changes = null, collapseOthers = false) {

@@ -54,7 +54,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for module ownership and shared-code rule
 - Transcript adapters currently support Claude Code and Codex. Other agents, including Grok, need an adapter.
 - Existing Codex terminals may require `/status` to establish identity. Chat does not choose the newest log as a substitute for identity.
 - Queue state is local to this Chat client. Automatic delivery requires Herdr running; other clients have separate queues.
-- File previews are read-only and refresh on request. Diff is the historical patch recorded in the transcript; File is current disk content. Source previews stop at 400,000 characters. Line references are displayed in the path but do not yet move the code editor cursor.
+- File previews are read-only and refresh on request. Diff is the historical patch recorded in the transcript; File is current disk content. Source previews stop at 400,000 characters; binary image previews are limited to 5 MiB and can be opened in the zoom window. Line references are displayed in the path but do not yet move the code editor cursor.
 - Native terminal drawing, scrollback and multi-client TUI behavior belong to Herdr App/Core; this layout cannot replace their renderer.
 
 ## Attribution

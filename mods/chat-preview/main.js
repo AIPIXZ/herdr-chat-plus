@@ -1,6 +1,7 @@
-import {View,div} from "gpui-kit";
+import {View,div,image} from "gpui-kit";
 import {h_flex,v_flex,Editor,EditorState,TextView} from "gpui-base";
-import {shared,setShared,theme,settings,spaces,panes,focused,layout,readTextFile,run} from "herdr";
+import {shared,setShared,theme,settings,spaces,panes,focused,layout,readTextFile,run,openOverlay} from "herdr";
+import {isImageFile,loadPreviewImage} from "./image-preview.js";
 import {previewPane,previewKey,fileLink} from "./preview.js";
 import {splitMarkdownTables} from "./table.js";
 import {renderTable} from "./table-view.js";
@@ -18,11 +19,16 @@ export default class Preview extends View {
  }
  open(request,cx){
   const generation=++this.generation;
-  this.code?.release();this.code=null;this.text=null;this.error=null;this.limited=false;
+  this.code?.release();this.code=null;this.text=null;this.error=null;this.limited=false;this.picture=null;
   if(!request){cx.notify();return;}
   if(request.changes?.length && request.mode==="diff")return;
   cx.spawn(async cx=>{
    try {
+    if(isImageFile(request.file)) {
+     const picture=await loadPreviewImage(request.file,request.on);
+     if(generation!==this.generation)return;
+     this.picture=picture;cx.notify();return;
+    }
     const text=await readTextFile(request.file,{on:request.on});
     if(generation!==this.generation)return;
     if(text==null)throw new Error("This file is no longer available.");
@@ -34,7 +40,7 @@ export default class Preview extends View {
     this.code=EditorState.new({value:this.text,language:LANG[request.file.split('.').at(-1)?.toLowerCase()]??"text",readonly:true,
      line_numbers:true,soft_wrap:true,font_size:13,font_family:settings().font_family,
      syntax:{keyword:t.ansi5,string:t.ansi2,comment:t.dim,number:t.ansi3,constant:t.ansi6,type:t.ansi4,function:t.ansi4}});
-   } catch(error){if(generation===this.generation){this.error=String(error?.message??error);this.text=null;}}
+   } catch(error){if(generation===this.generation){this.error=/valid UTF-8|invalid.*utf.?8/i.test(String(error?.message??error))?"Binary or non-UTF-8 file · no text preview":String(error?.message??error);this.text=null;}}
    if(generation===this.generation)cx.notify();
   });
  }
@@ -108,6 +114,19 @@ export default class Preview extends View {
     .child(button("collection-close","×",()=>run("layout.hide",{id:"panel"}))))
    .child(viewport);
  }
+ imagePreview(t) {
+  const picture=this.picture,viewport=this.imageViewport??{width:500,height:400};
+  const scale=Math.max(0.01,Math.min(1,Math.max(1,viewport.width-24)/picture.w,Math.max(1,viewport.height-24)/picture.h));
+  const width=Math.round(picture.w*scale),height=Math.round(picture.h*scale);
+  return v_flex().flex_1().min_h(0)
+   .child(div().id("sidebar-image").relative().flex_1().min_h(0).overflow_hidden()
+    .on_size_change((size,cx)=>{if(size.width!==this.imageViewport?.width||size.height!==this.imageViewport?.height){this.imageViewport=size;cx.notify();}})
+    .child(div().absolute().left(Math.max(0,(viewport.width-width)/2)).top(Math.max(0,(viewport.height-height)/2)).w(width).h(height).cursor_pointer().tooltip("Open image")
+     .on_click(()=>openOverlay({mod:"chat-file",kind:"window",key:`sidebar-image-${picture.rel}`,width:900,height:680,frame:"none",
+      props:{image:picture.rel,imageWidth:picture.w,imageHeight:picture.h,title:picture.title}}))
+     .child(image(picture.rel).w(width).h(height))))
+   .child(div().px(12).py(8).text_size(11).text_color(t.dim).child(`${picture.w} × ${picture.h} · Click to zoom`));
+ }
  markdownPreview(request,identity,key,t) {
   const raw=(id,text)=>TextView.markdown(id,text).selectable(true).text_size(14).line_height("22px")
    .on_link_click((url,cx)=>{const linked=fileLink(url,request.file.replace(/[\\/][^\\/]*$/,''));
@@ -128,6 +147,7 @@ export default class Preview extends View {
   if(request?.changes?.length && request.mode==="diff")return this.diffCollection(request,t,key);
   const button=(id,label,action,selected=false)=>div().id(id).px(8).py(5).rounded(6).cursor_pointer().text_size(12)
    .bg(selected?t.selected:t.background).text_color(selected?t.foreground:t.muted).hover(style=>style.bg(t.hover).text_color(t.foreground)).on_click(action).child(label);
+  const pictureFile=isImageFile(request?.file);
   const markdown=/\.(md|markdown|mdown)$/i.test(request?.file??'');
   const mode=request?.mode??(markdown?'preview':'source');
   return v_flex().id("file-preview").size_full().min_w(0).min_h(0).rounded(10).overflow_hidden().bg(t.background).text_color(t.foreground)
@@ -142,13 +162,15 @@ export default class Preview extends View {
     .child(h_flex().px(8).pb(6).gap(4).items_center().border_b(1).border_color(t.border)
      .when(Boolean(request.change),row=>row.child(button("preview-mode-diff","Diff",()=>this.update(key,{mode:"diff"}),mode==='diff')))
      .when(markdown,row=>row.child(button("preview-mode-md","Preview",()=>this.update(key,{mode:"preview"}),mode==='preview')))
-     .child(button("preview-mode-source",request.change?'File':'Source',()=>this.update(key,{mode:"source"}),mode==='source'))
+     .when(!pictureFile,row=>row.child(button("preview-mode-source",request.change?'File':'Source',()=>this.update(key,{mode:"source"}),mode==='source')))
+     .when(pictureFile,row=>row.child(div().px(8).py(5).text_size(12).text_color(t.muted).child("Image")))
      .child(div().flex_1()))
     .when(mode==='diff'&&Boolean(request.change),row=>row.child(this.diff(request,t)))
     .when(mode!=='diff',row=>row
      .when(Boolean(this.error),body=>body.child(div().p(16).text_size(12).text_color(t.blocked).child(this.error)))
-     .when(!this.error&&this.text==null,body=>body.child(div().p(16).text_size(12).text_color(t.dim).child("Loading file…")))
-     .when(this.text!=null,body=>body
+     .when(!this.error&&this.text==null&&!this.picture,body=>body.child(div().p(16).text_size(12).text_color(t.dim).child("Loading file…")))
+     .when(pictureFile&&Boolean(this.picture),body=>body.child(this.imagePreview(t)))
+     .when(!pictureFile&&this.text!=null,body=>body
       .when(mode==='preview'&&markdown,content=>content.child(this.markdownPreview(request,identity,key,t)))
       .when(mode==='source',content=>content.child(Editor.new(this.code).flex_1().min_h(0)))
       .when(this.limited,content=>content.child(div().px(12).py(6).text_size(11).text_color(t.dim).child("Preview limited to 400,000 characters."))))))

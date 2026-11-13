@@ -183,6 +183,7 @@ export default class ChatFile extends View {
   }
 
   imageView(p, t) {
+    const background = t.background.replace(/^(#[0-9a-f]{6})[0-9a-f]{2}$/i, "$1");
     const fit = imageFit(this.viewport, p.imageWidth, p.imageHeight);
     const scale = this.imageScale ?? fit;
     const bounds = imageBounds(this.viewport, p.imageWidth, p.imageHeight, scale, this.imageOffset);
@@ -191,7 +192,7 @@ export default class ChatFile extends View {
       .hover(s => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); action(cx); }).child(text);
     const card = v_flex().id("image-window").size_full().rounded(18)
-      .border_1().border_color(t.border).shadow_lg().bg(t.background).text_color(t.foreground)
+      .border_1().border_color(t.border).shadow_lg().bg(background).text_color(t.foreground)
       .track_focus(this.imageFocus).key_context("ChatImage")
       .on_action("chat_image_close", (_event, cx) => {
         cx.stop_propagation();

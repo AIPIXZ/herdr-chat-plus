@@ -30,9 +30,13 @@ python3 scripts/install.py --install
 For a checkout already on this machine:
 
 ```sh
+python3 scripts/deploy-mods.py --check  # detect stale/overwritten installed code
+python3 scripts/deploy-mods.py --apply  # backed-up mod-only update; preserve the current layout
 python3 scripts/install.py --diagnose  # read-only file/routing checks
 python3 scripts/install.py --update   # back up and replace the layout/mod files
 ```
+
+Use only this Herdr Chat Plus checkout for updates. The old `herdr-chat/customized` tree shares mod names and can overwrite fixes if copied over this installation.
 
 Read `~/.config/herdr-app/AGENTS.md` before installing. `--install` refuses existing Chat names. `--update` backs up replaced files, preserves a conflicting New Chat shortcut, and selects the Chat layout. `--home PATH` or `HERDR_APP_HOME` chooses another app home. Without a mode, the installer only prints a dry run.
 

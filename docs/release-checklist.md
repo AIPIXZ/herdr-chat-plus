@@ -12,8 +12,8 @@
 
 ## Before the first release tag
 
-- [ ] Create `XD-Open-Jarvis/herdr-chat-plus` with the visibility chosen by its owner; push the prepared history to `main`. Preserve the old fork remote.
-- [ ] Remove the README's unpublished-repository note after the new clone URL works.
+- [x] Create the private `XD-Open-Jarvis/herdr-chat-plus` repository and push the prepared history to `main`, preserving the old fork remote.
+- [x] Replace the unpublished-repository note with private-repository access instructions.
 - [ ] Check CI on the new repository. Local checks do not prove hosted workflows have run.
 - [ ] Manually verify a fresh app home and another Mac: Chat/TUI switching, per-tab state, remote aliases/offline behavior, Codex fork/resume/new, Claude handoff, queues/retry, prompts and usage errors.
 - [ ] Manually verify file links, sidebar mode switching, hover preview scrolling, drag resizing, sticky/pushing diff headers, and image zoom/pan in light and dark themes.

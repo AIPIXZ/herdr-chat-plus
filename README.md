@@ -19,7 +19,7 @@ Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original
 
 Requirements: Herdr App, Python 3.9+, and Claude Code or Codex on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.
 
-The intended repository is `XD-Open-Jarvis/herdr-chat-plus`. These clone commands become usable after it is published:
+The repository is currently private; cloning requires access to `XD-Open-Jarvis/herdr-chat-plus`:
 
 ```sh
 git clone https://github.com/XD-Open-Jarvis/herdr-chat-plus.git

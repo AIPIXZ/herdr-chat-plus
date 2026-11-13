@@ -2921,9 +2921,12 @@ export default class Chat extends View {
       .child(v_flex().gap(6)
         .when(!models.length, (el) => el.child(row("This session", "nothing yet")))
         .children(models.map(([m, x]) => row(modelName(this.current().cat?.models, m) || m, `${k(x.input)} tokens in · ${k(x.output)} out`))))
-      .children(limits.map(([name, v]) => v_flex().gap(4)
-        .child(h_flex().text_size(12.5).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${Math.round(v.utilization)}%${v.resets_at ? ` · resets ${new Date(v.resets_at * (v.resets_at < 1e12 ? 1000 : 1)).toLocaleString()}` : ""}`)))
-        .child(bar(v.utilization, v.utilization >= 90 ? t.blocked : t.accent))))
+      .children(limits.map(([name, v]) => {
+        const used = Math.max(0, Math.min(100, Math.round(v.utilization))), left = 100 - used;
+        return v_flex().gap(4)
+          .child(h_flex().text_size(12.5).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${left}% left${v.resets_at ? ` · resets ${new Date(v.resets_at * (v.resets_at < 1e12 ? 1000 : 1)).toLocaleString()}` : ""}`)))
+          .child(bar(left, used >= 90 ? t.blocked : t.accent));
+      }))
       .when(Boolean(rl.spend?.enabled), (el) => el.child(v_flex().gap(4)
         .child(h_flex().text_size(12.5).child(div().flex_1().child("Usage credits")).child(div().text_color(t.muted).child(`${money(rl.spend.used)} of ${money(rl.spend.limit)} · ${rl.spend.percent}%`)))
         .child(bar(rl.spend.percent, rl.spend.severity === "normal" ? t.accent : t.blocked))))
@@ -2971,10 +2974,10 @@ export default class Chat extends View {
           .child(bar(pct, pct >= 90 ? t.blocked : t.accent)));
       })
       .children(windows.map(([name, w]) => {
-        const pct = w.usedPercent ?? w.used_percent;
+        const used = Math.max(0, Math.min(100, Math.round(w.usedPercent ?? w.used_percent))), left = 100 - used;
         return v_flex().gap(4)
-          .child(h_flex().text_size(12.5).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${Math.round(pct)}%${when(w.resetsAt ?? w.resets_at)}`)))
-          .child(bar(pct, pct >= 90 ? t.blocked : t.accent));
+          .child(h_flex().text_size(12.5).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${left}% left${when(w.resetsAt ?? w.resets_at)}`)))
+          .child(bar(left, used >= 90 ? t.blocked : t.accent));
       }))
       .when(!l, (el) => el.child(div().text_size(12).text_color(t.muted).child("Codex didn't report its limits.")));
   }

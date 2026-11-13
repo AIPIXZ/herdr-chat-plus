@@ -12,11 +12,12 @@ function setup({saved=null,sharedState=new Map(),query,claude}={}){
  function el(){const state={childNodes:[]};let proxy;proxy=new Proxy(state,{get:(target,key)=>key in target?target[key]:(...args)=>{
   if(key==='id')state.elementId=args[0];
   else if(key==='child')state.childNodes.push(args[0]);else if(key==='children')state.childNodes.push(...args[0]);
+  else if(key==='w')state.width=args[0];else if(key==='bg')state.background=args[0];
   else if(key==='tooltip')state.tip=args[0];else if(key==='when'){if(args[0])args[1](proxy);}return proxy;
  }});return proxy;}
  class Clock extends Date{static now(){return now;}}
  const {Chat,usageSnapshot}=runInNewContext(source+'\n({Chat,usageSnapshot})',{
- View:class{},appWindow:()=>({platform:'macos'}),Date:Clock,div:el,h_flex:el,
+ View:class{},appWindow:()=>({platform:'macos'}),Date:Clock,div:el,h_flex:el,v_flex:el,
  machineOf:address=>address?.includes('/')?address.split('/')[0]:null,
  shared:key=>sharedState.get(key)??null,
  setShared:(key,value)=>sharedState.set(key,value),
@@ -134,4 +135,22 @@ test('contextBadge keys each ring element id by percentage to force GPUI repaint
  const badge=s.view.contextBadge({border:'#333',input:'#444',muted:'#aaa'});
  assert.equal(badge.childNodes[0].childNodes[0].elementId,'limit-5h-badge-ring-24');
  assert.equal(badge.childNodes[1].childNodes[0].elementId,'limit-7d-badge-ring-25');
+});
+test('usage cards render remaining percentage and bar width for Codex and Claude',()=>{
+ const s=setup();
+ const theme={accent:'#3b82f6',blocked:'#ef4444',border:'#333',muted:'#aaa',raised:'#222',surface:'#111'};
+ const codexCard=s.view.card({card:'usage',codex:{primary:{used_percent:24},secondary:{used_percent:92}}},theme);
+ assert.equal(codexCard.childNodes[2].childNodes[0].childNodes[1].childNodes[0],'76% left');
+ assert.equal(codexCard.childNodes[2].childNodes[1].childNodes[0].width,'76%');
+ assert.equal(codexCard.childNodes[2].childNodes[1].childNodes[0].background,theme.accent);
+ assert.equal(codexCard.childNodes[3].childNodes[0].childNodes[1].childNodes[0],'8% left');
+ assert.equal(codexCard.childNodes[3].childNodes[1].childNodes[0].width,'8%');
+ assert.equal(codexCard.childNodes[3].childNodes[1].childNodes[0].background,theme.blocked);
+ const claudeCard=s.view.card({card:'usage',usage:{rate_limits:{five_hour:{utilization:24},seven_day:{utilization:92}}}},theme);
+ assert.equal(claudeCard.childNodes[2].childNodes[0].childNodes[1].childNodes[0],'76% left');
+ assert.equal(claudeCard.childNodes[2].childNodes[1].childNodes[0].width,'76%');
+ assert.equal(claudeCard.childNodes[2].childNodes[1].childNodes[0].background,theme.accent);
+ assert.equal(claudeCard.childNodes[3].childNodes[0].childNodes[1].childNodes[0],'8% left');
+ assert.equal(claudeCard.childNodes[3].childNodes[1].childNodes[0].width,'8%');
+ assert.equal(claudeCard.childNodes[3].childNodes[1].childNodes[0].background,theme.blocked);
 });

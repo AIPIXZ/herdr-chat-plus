@@ -2967,7 +2967,6 @@ export default class Chat extends View {
     if (items.length === 1) return this.tool(e.key, items[0].id ?? 0, items[0], t);
     const commands = items.every(item => item.name === "Bash" || item.name === "Wait");
     const label = commands ? running ? "Running commands" : "Ran commands" : toolSummary(items, running);
-    const failed = described.some((i) => i.error);
     const thumbs = e.items.flatMap((i) => i.images);
     return v_flex().w_full().gap(6)
       .child(h_flex().id(`tg-${e.key}`).gap(6).items_center().cursor_pointer().text_size(13).text_color(t.dim)
@@ -2976,8 +2975,7 @@ export default class Chat extends View {
         .child(svg(`mods/chat/icons/${commands ? "terminal" : "edit"}.svg`).size(14).flex_none())
         .child(div().min_w(0).truncate().child(label))
         .child(svg(`mods/chat/icons/${open ? "chevron-down" : "chevron"}.svg`).size(12).flex_none())
-        .when(running, (el) => el.child(div().flex_none().text_color(t.working).frames(SPINNER, 90)))
-        .when(failed, (el) => el.child(div().flex_none().text_color(t.blocked).child("error"))))
+        .when(running, (el) => el.child(div().flex_none().text_color(t.working).frames(SPINNER, 90))))
       .when(!open && thumbs.length > 0, (el) => el.child(h_flex().pl(16).gap(6).children(thumbs.map((i) => this.img(i.ref, t, 312, 215)))))
       .when(open, (el) => el.children((visible.length ? visible : described).map((i, n) => this.tool(e.key, i.id ?? n, i, t))));
   }
@@ -3075,13 +3073,13 @@ export default class Chat extends View {
     const command = typeof item.displayInput === "string" ? item.displayInput : item.input?.cmd ?? item.input?.command ?? item.summary;
     const pendingOutput = item.sessionId != null && item.exitCode == null;
     return v_flex().w_full().min_w(0).mt(6).px(12).py(10).gap(8).rounded(12)
-      .border(0.5).border_color(item.error ? t.blocked : t.input).bg(t.surface)
+      .border(0.5).border_color(t.input).bg(t.surface)
       .child(div().text_size(12).text_color(t.muted).child("Shell"))
       .child(this.plainOutput(`${id}-command`, `$ ${command ?? ""}`, { ...t, muted: t.foreground }, false, false))
       .when(Boolean(item.result?.trim()), el => el.child(div().w_full().min_w(0).pt(8).border_t(1).border_color(t.border)
-        .child(this.plainOutput(`${id}-shell-output`, item.result, t, item.error, false))))
-      .child(h_flex().justify_end().text_size(11.5).text_color(item.error ? t.blocked : t.dim)
-        .child(item.error ? `✕ Failed${item.exitCode != null ? ` · exit ${item.exitCode}` : ""}`
+        .child(this.plainOutput(`${id}-shell-output`, item.result, t, false, false))))
+      .child(h_flex().justify_end().text_size(11.5).text_color(t.dim)
+        .child(item.error ? `Finished${item.exitCode != null ? ` · exit ${item.exitCode}` : ""}`
           : running ? "Running…" : pendingOutput ? "Output pending" : item.result === null ? "Pending" : "✓ Success"));
   }
 
@@ -3108,30 +3106,29 @@ export default class Chat extends View {
     const running = i.result === null && this.terminal()?.status === "working";
     const isPlan = i.name === "Plan" && Boolean(i.todos?.length);
     return v_flex().w_full().min_w(0)
-      .when(i.error, el => el.rounded(8).border_1().border_color(t.blocked))
       .child(h_flex().id(id).px(4).py(3).gap(8).items_center().cursor_pointer().text_color(t.muted)
         .hover(style => i.name === "Bash" ? style.text_color(t.foreground) : style.bg(t.hover))
         .on_click((_event, cx) => { this.toggleCard(id, cx, open); })
         .child(svg(`mods/chat/icons/${i.name === "Edit" ? "edit" : i.name === "Bash" || i.name === "Wait" ? "terminal" : i.name === "Plan" ? "scroll" : /search|grep|glob/i.test(i.name) ? "search" : "plug"}.svg`).size(14).flex_none())
-        .child(div().flex_none().text_size(12.5).child(i.name === "Edit" ? i.error ? "Edit failed" : i.result === null ? "Editing" : "Edited" : i.name === "Bash" ? i.error ? "Command failed" : i.result === null ? "Running" : "Ran" : i.name))
+        .child(div().flex_none().text_size(12.5).child(i.name === "Edit" ? i.error ? "Edit" : i.result === null ? "Editing" : "Edited" : i.name === "Bash" ? i.result === null ? "Running" : "Ran" : i.name))
         .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(i.name === "Bash" ? commandPreview(i.displayInput ?? i.summary) : summaryLine(i.summary)))
         .when(i.changes?.length === 1 && i.changes[0].added != null && !i.error, el => el
           .child(div().text_size(11.5).text_color(t.done).child(`+${i.changes[0].added}`))
           .child(div().text_size(11.5).text_color(t.ansi1).child(`−${i.changes[0].removed ?? 0}`)))
         .when(running, el => el.child(div().text_size(12).text_color(t.dim).frames(SPINNER, 90)))
-        .when(!running && (i.error || i.result === null), el => el.child(div().text_size(11).text_color(i.error ? t.blocked : t.dim).child(i.error ? "Error" : "Pending")))
+        .when(!running && i.result === null, el => el.child(div().text_size(11).text_color(t.dim).child("Pending")))
         .child(svg(`mods/chat/icons/${open ? "chevron-down" : "chevron"}.svg`).size(12).flex_none()))
       .when(open && isPlan, el => el.child(this.planView(id, i, t)))
       .when(open && i.name === "Bash", el => el.child(this.shellDetails(id, i, t, running)))
       .when(open && !isPlan && i.name !== "Bash", el => el.child(v_flex().w_full().min_w(0).mt(6).px(12).py(10).gap(8)
-        .rounded(12).border(0.5).border_color(i.error ? t.blocked : t.input).bg(t.surface)
+        .rounded(12).border(0.5).border_color(t.input).bg(t.surface)
         .when(i.input != null, row => row.child(v_flex().gap(4)
           .child(div().text_size(11).text_color(t.dim).child("Input"))
           .child(this.plainOutput(`${id}-input`, typeof i.displayInput === "string" ? i.displayInput
             : i.displayInput?.command ?? i.displayInput?.cmd ?? JSON.stringify(i.displayInput, null, 2), t, false, false))))
         .when(Boolean(i.result?.trim()), row => row.child(v_flex().gap(4)
           .child(div().text_size(11).text_color(t.dim).child("Output"))
-          .child(this.plainOutput(`${id}-result`, i.result, t, i.error, false))))
+          .child(this.plainOutput(`${id}-result`, i.result, t, false, false))))
         .when(i.images.length > 0, row => row.child(h_flex().flex_wrap().gap(6)
           .children(i.images.map(image => this.img(image.ref, t, 420, 300)))))))
       .when(open && i.displayInput !== i.input, el => el.child(v_flex().px(12).pb(8).gap(4)

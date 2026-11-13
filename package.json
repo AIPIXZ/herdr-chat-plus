@@ -5,7 +5,9 @@
   "type": "module",
   "description": "A native Herdr Chat/TUI layout for existing Claude Code and Codex terminals",
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "check": "python3 scripts/check.py",
@@ -14,14 +16,66 @@
   },
   "herdr": {
     "layout": "chat",
-    "mods": ["chat", "chat-file", "chat-preview", "chat-pane", "chat-tabs", "spaces-chat", "agents-chat"],
+    "mods": [
+      "chat",
+      "chat-file",
+      "chat-preview",
+      "chat-pane",
+      "chat-tabs",
+      "spaces-chat",
+      "agents-chat"
+    ],
     "sharedModules": [
-      {"source": "mods/chat/backstage.js", "copies": ["mods/chat-pane/backstage.js"]},
-      {"source": "mods/chat/identity.js", "copies": ["mods/chat-pane/identity.js", "mods/chat-tabs/identity.js"]},
-      {"source": "mods/chat/presentation.js", "copies": ["mods/chat-pane/presentation.js", "mods/chat-tabs/presentation.js"]},
-      {"source": "mods/chat/title.js", "copies": ["mods/chat-pane/title.js"]},
-      {"source": "mods/chat/preview.js", "copies": ["mods/chat-preview/preview.js"]},
-      {"source": "mods/chat/diff.js", "copies": ["mods/chat-preview/diff.js"]}
+      {
+        "source": "mods/chat/backstage.js",
+        "copies": [
+          "mods/chat-pane/backstage.js"
+        ]
+      },
+      {
+        "source": "mods/chat/identity.js",
+        "copies": [
+          "mods/chat-pane/identity.js",
+          "mods/chat-tabs/identity.js"
+        ]
+      },
+      {
+        "source": "mods/chat/presentation.js",
+        "copies": [
+          "mods/chat-pane/presentation.js",
+          "mods/chat-tabs/presentation.js"
+        ]
+      },
+      {
+        "source": "mods/chat/title.js",
+        "copies": [
+          "mods/chat-pane/title.js"
+        ]
+      },
+      {
+        "source": "mods/chat/preview.js",
+        "copies": [
+          "mods/chat-preview/preview.js"
+        ]
+      },
+      {
+        "source": "mods/chat/diff.js",
+        "copies": [
+          "mods/chat-preview/diff.js"
+        ]
+      },
+      {
+        "source": "mods/chat/table.js",
+        "copies": [
+          "mods/chat-preview/table.js"
+        ]
+      },
+      {
+        "source": "mods/chat/table-view.js",
+        "copies": [
+          "mods/chat-preview/table-view.js"
+        ]
+      }
     ]
   }
 }

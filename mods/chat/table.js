@@ -1,5 +1,5 @@
 // Split ordinary Markdown around GitHub-style pipe tables. Code fences are
-// removed by splitCode before this runs, so their pipes stay literal.
+// also recognized here so other Markdown entry points preserve code literally.
 function cells(line) {
   if (/^ {4}|^\t/.test(line)) return null;
   let text = line.trim();
@@ -26,11 +26,18 @@ function cells(line) {
 
 export function splitMarkdownTables(markdown) {
   const lines = markdown.split("\n"), parts = [];
-  let plain = [];
+  let plain = [], fence = null;
   const flush = () => { if (plain.length) { parts.push({ md: plain.join("\n") }); plain = []; } };
   for (let i = 0; i < lines.length;) {
+    if (fence) {
+      const line = lines[i++]; plain.push(line);
+      if (new RegExp(`^\\s{0,6}${fence[0]}{${fence.length},}\\s*$`).test(line)) fence = null;
+      continue;
+    }
+    const opening = /^\s{0,6}(`{3,}|~{3,})/.exec(lines[i]);
+    if (opening) { fence = opening[1]; plain.push(lines[i++]); continue; }
     const head = cells(lines[i]), rule = cells(lines[i + 1] ?? "");
-    if (!head || !rule || head.length !== rule.length || !rule.every(cell => /^:?-{3,}:?$/.test(cell))) {
+    if (!head || !rule || head.length !== rule.length || !rule.every(cell => /^:?-+:?$/.test(cell))) {
       plain.push(lines[i++]); continue;
     }
     flush();

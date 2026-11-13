@@ -2,6 +2,8 @@ import {View,div} from "gpui-kit";
 import {h_flex,v_flex,Editor,EditorState,TextView} from "gpui-base";
 import {shared,setShared,theme,settings,spaces,panes,focused,layout,readTextFile,run} from "herdr";
 import {previewPane,previewKey,fileLink} from "./preview.js";
+import {splitMarkdownTables} from "./table.js";
+import {renderTable} from "./table-view.js";
 import {collectionPosition,FILE_HEADER} from "./collection.js";
 import {diffLines,diffGroups} from "./diff.js";
 const LANG={md:"markdown",markdown:"markdown",json:"json",js:"javascript",mjs:"javascript",jsx:"javascript",ts:"typescript",tsx:"typescript",py:"python",rs:"rust",go:"go",sh:"bash",yaml:"yaml",yml:"yaml",toml:"toml",html:"html",css:"css"};
@@ -27,6 +29,7 @@ export default class Preview extends View {
     if(text.includes("\0"))throw new Error("Binary file · no text preview");
     this.limited=text.length>400000;
     this.text=text.slice(0,400000);
+    this.markdownParts=this.text.includes("|")?splitMarkdownTables(this.text):[{md:this.text}];
     const t=theme();
     this.code=EditorState.new({value:this.text,language:LANG[request.file.split('.').at(-1)?.toLowerCase()]??"text",readonly:true,
      line_numbers:true,soft_wrap:true,font_size:13,font_family:settings().font_family,
@@ -105,6 +108,19 @@ export default class Preview extends View {
     .child(button("collection-close","×",()=>run("layout.hide",{id:"panel"}))))
    .child(viewport);
  }
+ markdownPreview(request,identity,key,t) {
+  const raw=(id,text)=>TextView.markdown(id,text).selectable(true).text_size(14).line_height("22px")
+   .on_link_click((url,cx)=>{const linked=fileLink(url,request.file.replace(/[\\/][^\\/]*$/,''));
+    if(linked)this.update(key,{...linked,change:null,changes:null,mode:/\.(md|markdown|mdown)$/i.test(linked.file)?'preview':'source',revision:Date.now()});
+    else if(!url.startsWith("#"))cx.open_url(url);
+   });
+  const parts=this.markdownParts??[{md:this.text}];
+  if(!parts.some(part=>part.table))return div().flex_1().min_h(0).overflow_hidden().p(16)
+   .child(raw(`preview-md-${identity}`,this.text).size_full().scrollable(true));
+  return v_flex().id(`preview-markdown-${identity}`).flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(8)
+   .children(parts.map((part,index)=>part.table?renderTable(`preview-table-${identity}-${index}`,part.table,t,settings().dark,raw)
+    :raw(`preview-md-${identity}-${index}`,part.md).flex_none()));
+ }
  render(cx){
   const {key,request}=this.current(),t=theme();
   const identity=request?`${key}:${request.revision}:${request.mode==="diff"?"diff":request.file}`:null;
@@ -133,12 +149,7 @@ export default class Preview extends View {
      .when(Boolean(this.error),body=>body.child(div().p(16).text_size(12).text_color(t.blocked).child(this.error)))
      .when(!this.error&&this.text==null,body=>body.child(div().p(16).text_size(12).text_color(t.dim).child("Loading file…")))
      .when(this.text!=null,body=>body
-      .when(mode==='preview'&&markdown,content=>content.child(div().flex_1().min_h(0).overflow_hidden().p(16)
-       .child(TextView.markdown(`preview-md-${identity}`,this.text).size_full().selectable(true).scrollable(true).text_size(14).line_height("22px")
-        .on_link_click((url,cx)=>{const linked=fileLink(url,request.file.replace(/[\\/][^\\/]*$/,''));
-         if(linked){this.update(key,{...linked,change:null,mode:/\.(md|markdown|mdown)$/i.test(linked.file)?'preview':'source',revision:Date.now()});}
-         else if(!url.startsWith("#"))cx.open_url(url);
-        }))))
+      .when(mode==='preview'&&markdown,content=>content.child(this.markdownPreview(request,identity,key,t)))
       .when(mode==='source',content=>content.child(Editor.new(this.code).flex_1().min_h(0)))
       .when(this.limited,content=>content.child(div().px(12).py(6).text_size(11).text_color(t.dim).child("Preview limited to 400,000 characters."))))))
    .when(!request,el=>el.child(div().flex_1().p(20).text_size(13).text_color(t.muted).child("Click a file link or a changed file in this chat to preview it here.")));

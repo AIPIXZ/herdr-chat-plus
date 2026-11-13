@@ -31,6 +31,7 @@ import { live, liveSnapshot } from "./stream.js";
 import { CodexHandoff } from "./handoff.js";
 import { HandoffTracer } from "./trace.js";
 import { withPending } from "./timeline.js";
+import { renderTable } from "./table-view.js";
 import { splitMarkdownTables } from "./table.js";
 import { sidebarVisible, hoverGeometry } from "./hover-diff.js";
 import { fileLink, previewKey, previewLayout } from "./preview.js";
@@ -766,19 +767,7 @@ export default class Chat extends View {
   }
 
   markdownTable(id, table, t) {
-    const stroke = settings().dark ? 1 : 0.5;
-    return v_flex().w_full().rounded(10).overflow_hidden().border(stroke).border_color(t.border)
-      .children(table.rows.map((row, rowIndex) => h_flex().w_full()
-        .bg(rowIndex === 0 ? t.surface : t.background)
-        .when(rowIndex === 0, el => el.rounded_t(9))
-        .when(rowIndex === table.rows.length - 1, el => el.rounded_b(9))
-        .when(rowIndex > 0, el => el.border_t(stroke).border_color(t.border))
-        .children(row.map((cell, column) => div().flex_1().min_w(0).px(12).py(8).text_size(13)
-          .when(column > 0, el => el.border_l(stroke).border_color(t.border))
-          .when(rowIndex === 0, el => el.font_semibold())
-          .when(table.align[column] === "right", el => el.text_right())
-          .when(table.align[column] === "center", el => el.text_center())
-          .child(this.markdown(`${id}-${rowIndex}-${column}`, cell || " "))))));
+    return renderTable(id, table, t, settings().dark, (key, text) => this.markdown(key, text));
   }
 
   // The command or tool running now, with its output so far, as the terminal
@@ -2671,8 +2660,29 @@ export default class Chat extends View {
   }
 
   markdown(id, text) {
-    return TextView.markdown(id, text).selectable(true)
+    const raw = (key, value) => TextView.markdown(key, value).selectable(true)
       .on_link_click((url, cx) => this.openFilePreview(url, cx));
+    if (!text.includes("|")) return raw(id, text);
+    const parts = splitMarkdownTables(text);
+    if (!parts.some(part => part.table)) return raw(id, text);
+    const t = theme();
+    return v_flex().w_full().gap(8).children(parts.map((part, index) => part.table
+      ? renderTable(`${id}-${index}`, part.table, t, settings().dark, raw)
+      : raw(`${id}-${index}`, part.md)));
+  }
+
+  attachmentPreview(attachment, index, t) {
+    return div().relative()
+      .child(attachment.image ? this.img(attachment.image.ref, t, 144, 108)
+        : div().px(10).py(8).rounded(8).bg(t.raised).text_size(11.5).child(attachment.name))
+      .child(div().id(`rm-${index}`).absolute().top(-6).right(-6).size(18).rounded_full().flex().items_center().justify_center()
+        .bg(t.foreground).text_color(t.background).text_size(11).cursor_pointer().hover(style => style.opacity(0.8))
+        .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
+        .on_click((_event, cx) => {
+          cx.stop_propagation();
+          this.attach = this.attach.filter(file => file !== attachment);
+          cx.notify();
+        }).child("×"));
   }
 
   entry(e, t, last, nextKind = null) {
@@ -3424,12 +3434,8 @@ export default class Chat extends View {
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
     const card = v_flex().w_full().max_w(900).rounded(18).border(0.5).border_color(this.inputFocused ? t.input : t.border)
       .bg(settings().dark ? t.background : "#00000000").when(settings().dark, el => el.shadow_sm())
-      .when(this.attach.length > 0, (el) => el.child(h_flex().px(12).pt(12).gap(8).flex_wrap().children(this.attach.map((a, n) =>
-        div().relative()
-          .child(a.image ? this.img(a.image.ref, t, 144, 108) : div().px(10).py(8).rounded(8).bg(t.raised).text_size(11.5).child(a.name))
-          .child(div().id(`rm-${n}`).absolute().top(-6).right(-6).size(18).rounded_full().flex().items_center().justify_center()
-            .bg(t.foreground).text_color(t.background).text_size(11).cursor_pointer().hover((s) => s.opacity(0.8))
-            .on_click((_e, cx) => { this.attach.splice(n, 1); cx.notify(); }).child("×"))))))
+      .when(this.attach.length > 0, (el) => el.child(h_flex().px(12).pt(12).gap(8).flex_wrap()
+        .children(this.attach.map((attachment, index) => this.attachmentPreview(attachment, index, t)))))
       .child(div().id("composer").w_full()
         .when(Boolean(this.slash()), (el) => el.key_context(this.slash().nav ? "ChatMenuNav" : "ChatMenu"))
         .when(!this.slash() && (Boolean(this.emojiMenu()) || Boolean(this.mentionMenu())), (el) => el.key_context("ChatMenu"))

@@ -20,3 +20,21 @@ test('escaped and inline-code pipes stay inside their cells', () => {
 test('ordinary pipes without a separator row remain markdown', () => {
   assert.deepEqual(splitMarkdownTables('a | b\njust text'), [{ md: 'a | b\njust text' }]);
 });
+
+test('compact delimiter rows use the rounded table renderer too', () => {
+  const parts=splitMarkdownTables('| A | B |\n| - | :-: |\n| one | two |');
+  assert.equal(parts[0].table.rows.length,2);
+  assert.deepEqual(parts[0].table.align,['left','center']);
+});
+
+test('table-shaped text inside closed and unfinished fences remains literal', () => {
+  for(const fence of ['```','~~~']) {
+    const code=`${fence}text\n| A | B |\n| --- | --- |\n| one | two |`;
+    assert.deepEqual(splitMarkdownTables(code),[{md:code}]);
+    const closed=code+`\n${fence}`;
+    assert.deepEqual(splitMarkdownTables(closed),[{md:closed}]);
+    const parts=splitMarkdownTables(closed+'\n\n| X | Y |\n| --- | --- |\n| 1 | 2 |');
+    assert.equal(parts.filter(part=>part.table).length,1);
+    assert(parts[0].md.includes(closed));
+  }
+});

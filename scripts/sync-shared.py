@@ -13,7 +13,8 @@ def main():
         source = ROOT/group['source']
         for copy in group['copies']:
             target = ROOT/copy
-            if source.read_bytes() != target.read_bytes():
+            if not target.is_file() or source.read_bytes() != target.read_bytes():
+                target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, target)
                 print('{} -> {}'.format(group['source'], copy))
 

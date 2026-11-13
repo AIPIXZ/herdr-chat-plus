@@ -69,7 +69,7 @@ export function imageBounds(viewport, width, height, scale, offset) {
 export default class ChatFile extends View {
   init(_props, cx) {
     const p = props() ?? {};
-    if (p.imageMenu) return;
+    if (p.imageMenu) { this.imageCopied = false; return; }
     if (p.image) {
       this.imageFocus = cx.focus_handle();
       this.imageFocus.focus();
@@ -83,6 +83,7 @@ export default class ChatFile extends View {
       this.imageOffset = { x: 0, y: 0 };
       this.imageDrag = null;
       this.imageCopied = false;
+      this.imageMenuAt = null;
       return;
     }
     this.file = p.file;
@@ -169,27 +170,34 @@ export default class ChatFile extends View {
   }
 
   imageMenuView(p, t) {
-    return v_flex().id("image-context-menu").size_full().p(4).bg(t.popover).text_color(t.foreground).text_size(12.5)
-      .child(h_flex().id("menu-copy-image").h(28).px(10).gap(8).items_center().rounded(6).cursor_pointer()
+    return div().id("image-context-menu").size_full().p(6)
+      .on_mouse_down("left", (_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); })
+      .child(div().id("menu-copy-image").w(34).h(34).rounded(8)
+        .bg(t.popover).border_1().border_color(t.border).shadow_md().text_color(this.imageCopied ? t.done : t.foreground)
+        .flex().items_center().justify_center().cursor_pointer()
         .hover(s => s.bg(t.hover))
+        .on_mouse_down_out((_e, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); })
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); this.copyCurrentImage(cx, true); })
-        .child(div().flex_1().child("Copy image"))
-        .child(div().text_size(11).text_color(t.dim).child("⌘C")));
+        .child(svg(this.imageCopied ? "mods/chat-file/check.svg" : "mods/chat-file/copy.svg").size(16)));
   }
 
   imageView(p, t) {
     const fit = imageFit(this.viewport, p.imageWidth, p.imageHeight);
     const scale = this.imageScale ?? fit;
     const bounds = imageBounds(this.viewport, p.imageWidth, p.imageHeight, scale, this.imageOffset);
-    const button = (id, text, tip, action) => div().id(id).flex_none().h(28).px(8).rounded(5)
+    const button = (id, text, tip, action) => div().id(id).flex_none().w(28).h(28).rounded(5)
       .flex().items_center().justify_center().cursor_pointer().text_size(12).tooltip(tip)
       .hover(s => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); action(cx); }).child(text);
     const card = v_flex().id("image-window").size_full().rounded(18)
       .border_1().border_color(t.border).shadow_lg().bg(t.background).text_color(t.foreground)
       .track_focus(this.imageFocus).key_context("ChatImage")
-      .on_action("chat_image_close", (_event, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); })
+      .on_action("chat_image_close", (_event, cx) => {
+        cx.stop_propagation();
+        if (this.imageMenuAt) { this.imageMenuAt = null; cx.notify(); return; }
+        closeOverlay(p.overlay);
+      })
       .on_action("chat_image_copy", (_event, cx) => { cx.stop_propagation(); this.copyCurrentImage(cx); })
       .on_mouse_down("left", () => this.imageFocus.focus())
       .on_mouse_down_out((_event, cx) => { cx.stop_propagation(); closeOverlay(p.overlay); })
@@ -197,7 +205,6 @@ export default class ChatFile extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(13).child(p.title ?? "Image"))
         .child(button("close-image", "×", "Close", () => closeOverlay(p.overlay))))
       .child(div().id("image-viewport").relative().flex_1().min_h(0).mx(6).mb(6).rounded(12).overflow_hidden()
-        .tooltip("Scroll to zoom · Drag to pan · Right-click or ⌘C to copy")
         .on_size_change((size, cx) => {
           if (size.width !== this.viewport.width || size.height !== this.viewport.height) {
             this.viewport = size; cx.notify();
@@ -210,15 +217,22 @@ export default class ChatFile extends View {
         .on_mouse_down("left", (event, cx) => {
           cx.stop_propagation();
           this.imageFocus.focus();
+          if (this.imageMenuAt) { this.imageMenuAt = null; cx.notify(); }
           if (event.click_count === 2) {
             this.imageScale = this.imageScale === null ? 1 : null;
             this.imageOffset = { x: 0, y: 0 }; cx.notify(); return;
           }
           this.imageDrag = { start: event.position, x: bounds.x, y: bounds.y };
         })
-        .on_mouse_down("right", (_event, cx) => {
+        .on_mouse_down("right", (event, cx) => {
           cx.stop_propagation();
-          openOverlay({ mod: "chat-file", kind: "popup", width: 150, height: 36, props: { imageMenu: true, image: p.image, imagePath: p.imagePath } });
+          this.imageFocus.focus();
+          const pt = event.local_position ?? { x: this.viewport.width / 2, y: this.viewport.height / 2 };
+          this.imageMenuAt = {
+            x: Math.max(8, Math.min(this.viewport.width - 42, Math.round(pt.x))),
+            y: Math.max(8, Math.min(this.viewport.height - 42, Math.round(pt.y))),
+          };
+          cx.notify();
         })
         .on_mouse_move((event, cx) => {
           if (!this.imageDrag) return;
@@ -241,8 +255,23 @@ export default class ChatFile extends View {
           this.imageScale = null; this.imageOffset = { x: 0, y: 0 }; cx.notify();
         }))
         .child(div().w(1).h(16).mx(2).bg(t.border))
-        .child(button("image-copy", this.imageCopied ? "Copied" : "Copy", "Copy image (⌘C)", cx => this.copyCurrentImage(cx)))
-        ));
+        .child(button("image-copy", svg(this.imageCopied ? "mods/chat-file/check.svg" : "mods/chat-file/copy.svg").size(16), "Copy image (⌘C)", cx => this.copyCurrentImage(cx)))
+        )
+        .when(Boolean(this.imageMenuAt), el => el.child(
+          div().id("image-context-copy").absolute().left(this.imageMenuAt.x).top(this.imageMenuAt.y)
+            .w(34).h(34).rounded(8).bg(t.popover).border_1().border_color(t.border).shadow_md()
+            .text_color(this.imageCopied ? t.done : t.foreground)
+            .flex().items_center().justify_center().cursor_pointer()
+            .hover(s => s.bg(t.hover))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_mouse_down("right", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              this.imageMenuAt = null;
+              this.copyCurrentImage(cx);
+            })
+            .child(svg(this.imageCopied ? "mods/chat-file/check.svg" : "mods/chat-file/copy.svg").size(16))
+        )));
     return div().id("image-overlay-pad").size_full().p(16).child(card);
   }
 

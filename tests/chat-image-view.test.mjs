@@ -24,11 +24,26 @@ test('zoom respects limits and actual size remains available',()=>{
  v.zoomImage(.001,{notify(){}});assert.equal(v.imageScale,.1);
  v.zoomImage(1,{notify(){}});assert.equal(v.imageScale,1);
 });
-test('image preview window avoids outer rectangular clipping and exposes copy controls',()=>{
+test('image preview window avoids outer rectangular clipping and exposes icon copy controls',()=>{
  const raw=readFileSync(new URL('../mods/chat-file/main.js',import.meta.url),'utf8');
+ const chatRaw=readFileSync(new URL('../mods/chat/main.js',import.meta.url),'utf8');
+ const previewRaw=readFileSync(new URL('../mods/chat-preview/main.js',import.meta.url),'utf8');
  assert.match(raw,/id\("image-overlay-pad"\)/);
  assert.doesNotMatch(raw,/id\("image-window"\)\.size_full\(\)\.rounded\(18\)\.overflow_hidden\(\)/);
  assert.match(raw,/id\("image-viewport"\)[\s\S]*\.rounded\(12\)\.overflow_hidden\(\)/);
- assert.match(raw,/id\("image-zoom-controls"\)[\s\S]*button\("image-copy"/);
+ assert.match(raw,/id\("image-zoom-controls"\)[\s\S]*button\("image-copy",\s*svg\(this\.imageCopied \? "mods\/chat-file\/check\.svg" : "mods\/chat-file\/copy\.svg"\)/);
+ assert.doesNotMatch(raw,/"Copy image"|"Copy"|"Copied"/);
+ assert.doesNotMatch(raw,/id\("image-context-menu"\)[^\n]*\.bg\(/);
+ assert.match(raw,/id\("menu-copy-image"\)\.w\(34\)\.h\(34\)\.rounded\(8\)/);
+ assert.match(raw,/id\("image-context-copy"\)[\s\S]*\.w\(34\)\.h\(34\)\.rounded\(8\)/);
+ assert.match(raw,/\.on_mouse_down\("right",\s*\(event,\s*cx\)\s*=>\s*\{[\s\S]*event\.local_position[\s\S]*this\.imageMenuAt/);
+ assert.doesNotMatch(raw,/id\("image-viewport"\)[\s\S]*\.on_mouse_down\("right"[\s\S]*?openOverlay/);
+ assert.doesNotMatch(raw,/View image|Open image|Scroll to zoom/);
+ const viewportHeader=raw.slice(raw.indexOf('id("image-viewport")'),raw.indexOf('.on_size_change',raw.indexOf('id("image-viewport")')));
+ const chatImgFn=chatRaw.slice(chatRaw.indexOf('img(ref, t'),chatRaw.indexOf('openFilePreview(',chatRaw.indexOf('img(ref, t')));
+ const previewImgFn=previewRaw.slice(previewRaw.indexOf('imagePreview(t)'),previewRaw.indexOf('markdownPreview(',previewRaw.indexOf('imagePreview(t)')));
+ assert.doesNotMatch(viewportHeader,/\.tooltip\(/);
+ assert.doesNotMatch(chatImgFn,/\.tooltip\(/);
+ assert.doesNotMatch(previewImgFn,/\.tooltip\(/);
  assert.match(raw,/chat_image_copy/);
 });

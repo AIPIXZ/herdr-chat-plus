@@ -121,10 +121,14 @@ export default class Preview extends View {
   return v_flex().flex_1().min_h(0)
    .child(div().id("sidebar-image").relative().flex_1().min_h(0).overflow_hidden()
     .on_size_change((size,cx)=>{if(size.width!==this.imageViewport?.width||size.height!==this.imageViewport?.height){this.imageViewport=size;cx.notify();}})
-    .child(div().absolute().left(Math.max(0,(viewport.width-width)/2)).top(Math.max(0,(viewport.height-height)/2)).w(width).h(height).cursor_pointer().tooltip("Open image · Right-click to copy")
+    .child(div().absolute().left(Math.max(0,(viewport.width-width)/2)).top(Math.max(0,(viewport.height-height)/2)).w(width).h(height).cursor_pointer()
      .on_click(()=>openOverlay({mod:"chat-file",kind:"window",key:`sidebar-image-${picture.rel}`,width:900,height:680,frame:"none",
       props:{image:picture.rel,imageWidth:picture.w,imageHeight:picture.h,title:picture.title}}))
-     .on_mouse_down("right",(_e,cx)=>{cx.stop_propagation();openOverlay({mod:"chat-file",kind:"popup",width:150,height:36,props:{imageMenu:true,image:picture.rel}});})
+     .on_mouse_down("right",(e,cx)=>{
+      cx.stop_propagation();
+      const at=e?.position?{x:Math.round(e.position.x),y:Math.round(e.position.y)}:undefined;
+      openOverlay({mod:"chat-file",kind:"popup",width:46,height:46,frame:"none",at,props:{imageMenu:true,image:picture.rel}});
+     })
      .child(image(picture.rel).w(width).h(height))))
    .child(div().px(12).py(8).text_size(11).text_color(t.dim).child(`${picture.w} × ${picture.h} · Click to zoom`));
  }

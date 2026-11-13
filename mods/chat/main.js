@@ -151,12 +151,27 @@ function normalizeRateLimits(raw) {
   return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
 }
 
+function activeRateLimits(limits, source, now = Date.now()) {
+  if (!limits || source !== "log") return limits;
+  const fresh = (w) => {
+    if (!w) return null;
+    const at = w.resetsAt;
+    if (at == null || at === "") return w;
+    const resetMs = typeof at === "number" ? at * (at < 1e12 ? 1000 : 1) : Date.parse(at);
+    return Number.isFinite(resetMs) && resetMs > 0 && resetMs <= now ? { pct: 0, resetsAt: null } : w;
+  };
+  const fiveHour = fresh(limits.fiveHour);
+  const sevenDay = fresh(limits.sevenDay);
+  return fiveHour || sevenDay ? { fiveHour, sevenDay } : null;
+}
+
 function usageSnapshot(raw, fetchedAt = 0, source = "cache") {
-  const limits = normalizeRateLimits(raw?.limits ?? raw);
+  const actualSource = raw?.limits ? raw.source ?? source : source;
+  const limits = activeRateLimits(normalizeRateLimits(raw?.limits ?? raw), actualSource);
   if (!limits) return null;
   const at = raw?.limits ? raw.fetchedAt : fetchedAt;
   return {limits, fetchedAt: Number.isFinite(at) && at <= Date.now() ? Math.max(0, at) : 0,
-    source: raw?.limits ? raw.source ?? source : source};
+    source: actualSource};
 }
 
 function latestUsageSnapshot(first, second) {
@@ -456,20 +471,38 @@ export default class Chat extends View {
     });
   }
 
+  sharedUsageSnapshot(key = this.limitsKey) {
+    if (!key || typeof shared !== "function") return null;
+    try { return usageSnapshot((shared("chat.usageLimits") ?? {})[key]); }
+    catch { return null; }
+  }
+
   currentUsageSnapshot() {
-    return latestUsageSnapshot(this.rateLimitsSnapshot ?? usageSnapshot(this.rateLimits),
-      usageSnapshot(this.t?.limits, this.t?.limitsTimestamp ?? 0, "log"));
+    return latestUsageSnapshot(
+      latestUsageSnapshot(this.rateLimitsSnapshot ?? usageSnapshot(this.rateLimits), this.sharedUsageSnapshot()),
+      usageSnapshot(this.t?.limits, this.t?.limitsTimestamp ?? 0, "log")
+    );
   }
 
   saveUsageSnapshot(snapshot, key = this.limitsKey) {
     if (!snapshot || !key || (this.limitsKey && key !== this.limitsKey)) return false;
     const before = this.rateLimitsSnapshot;
-    const next = latestUsageSnapshot(before, snapshot);
-    if (next === before) return false;
+    const base = latestUsageSnapshot(before, this.sharedUsageSnapshot(key));
+    const next = latestUsageSnapshot(base, snapshot);
+    if (next === before && JSON.stringify(before?.limits ?? null) === JSON.stringify(next?.limits ?? null)
+      && before?.fetchedAt === next?.fetchedAt && before?.source === next?.source) return false;
     this.rateLimitsSnapshot = next;
     this.rateLimits = next.limits;
     if (snapshot.source === "api") { this.limitsAt = Date.now(); this.limitsRetryAt = 0; }
     try { localStorage.setItem(`limits1:${key}`, JSON.stringify(next)); } catch {}
+    if (typeof shared === "function" && typeof setShared === "function") {
+      try {
+        const all = shared("chat.usageLimits") ?? {};
+        if (JSON.stringify(all[key] ?? null) !== JSON.stringify(next)) {
+          setShared("chat.usageLimits", { ...all, [key]: next });
+        }
+      } catch {}
+    }
     return true;
   }
 
@@ -487,8 +520,10 @@ export default class Chat extends View {
       this.limitsGeneration = (this.limitsGeneration ?? 0) + 1;
       this.limitsAt = 0; this.limitsRetryAt = 0; this.limitsEpoch = 0;
       this.limitsLoading = false; this.limitsForceQueued = false;
-      try { this.rateLimitsSnapshot = usageSnapshot(JSON.parse(localStorage.getItem(`limits1:${key}`) ?? "null")); }
-      catch { this.rateLimitsSnapshot = null; }
+      let localSnapshot = null;
+      try { localSnapshot = usageSnapshot(JSON.parse(localStorage.getItem(`limits1:${key}`) ?? "null")); }
+      catch { localSnapshot = null; }
+      this.rateLimitsSnapshot = latestUsageSnapshot(localSnapshot, this.sharedUsageSnapshot(key));
       this.rateLimits = this.rateLimitsSnapshot?.limits ?? null;
     }
     if (!key) return;
@@ -2002,6 +2037,7 @@ export default class Chat extends View {
         this.historyLoading = false;
         this.grew = true;
         if (this.chatVisible()) { this.cacheShown(cx); cx.notify(); }
+        this.loadUsageLimits(this.terminal(), kind, cx);
         if (!previous && (kind === "codex" || kind === "claude") && this.term && this.terminal()?.status !== "working" && !this.codexHandoff?.seeded) {
           const term = this.term;
           cx.spawn(async () => {
@@ -3460,7 +3496,7 @@ export default class Chat extends View {
         .cursor_pointer().hover((s) => s.bg(t.hover))
         .tooltip(tip)
         .on_click(onClick)
-        .child(ringIcon(100 - pct, color, t.input));
+        .child(div().id(`${id}-ring-${pct}`).flex_none().child(ringIcon(100 - pct, color, t.input)));
     };
     const items = [];
     if (limits.fiveHour) {

@@ -6,26 +6,33 @@ const source=readFileSync(new URL('../mods/chat/main.js',import.meta.url),'utf8'
 const parse=readFileSync(new URL('../mods/chat/parse.js',import.meta.url),'utf8');
 const {Transcript}=await import('data:text/javascript;base64,'+Buffer.from(parse).toString('base64'));
 const quota=pct=>({primary:{used_percent:pct},secondary:{used_percent:pct+1}});
-function setup({saved=null,query,claude}={}){
+function setup({saved=null,sharedState=new Map(),query,claude}={}){
  let now=1000000,calls=0;const tasks=[],store=new Map(),routes=[];
  if(saved)store.set('limits1:codex|',JSON.stringify(saved));
  function el(){const state={childNodes:[]};let proxy;proxy=new Proxy(state,{get:(target,key)=>key in target?target[key]:(...args)=>{
-  if(key==='child')state.childNodes.push(args[0]);else if(key==='children')state.childNodes.push(...args[0]);
+  if(key==='id')state.elementId=args[0];
+  else if(key==='child')state.childNodes.push(args[0]);else if(key==='children')state.childNodes.push(...args[0]);
   else if(key==='tooltip')state.tip=args[0];else if(key==='when'){if(args[0])args[1](proxy);}return proxy;
  }});return proxy;}
  class Clock extends Date{static now(){return now;}}
  const {Chat,usageSnapshot}=runInNewContext(source+'\n({Chat,usageSnapshot})',{
  View:class{},appWindow:()=>({platform:'macos'}),Date:Clock,div:el,h_flex:el,
  machineOf:address=>address?.includes('/')?address.split('/')[0]:null,
+ shared:key=>sharedState.get(key)??null,
+ setShared:(key,value)=>sharedState.set(key,value),
  localStorage:{getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,value)},
  codexCalls:async(folder,requests,on)=>{calls++;routes.push({folder,on});return query?query(calls):[{rateLimits:quota(20)}];},
  control:async(...args)=>{calls++;return claude?claude(...args):[{rate_limits:{five_hour:{utilization:30}}}];},
  });
  const term={address:'t1',cwd:'/repo',foreground:{pid:42}};
+ const createView=(addr='t2',t=null)=>{
+  const inst=Object.create(Chat.prototype);Object.defineProperty(inst,'term',{value:addr,writable:true});
+  return Object.assign(inst,{terminal:()=>({address:addr,cwd:'/repo',foreground:{pid:43}}),t});
+ };
  const instance=Object.create(Chat.prototype);Object.defineProperty(instance,'term',{value:'t1',writable:true});
  const view=Object.assign(instance,{terminal:()=>term,t:{limits:quota(90),limitsTimestamp:1000}});
  const cx={notify(){},spawn(fn){tasks.push(fn(cx));}};
- return {view,term,cx,store,routes,snapshot:usageSnapshot,advance:ms=>now+=ms,calls:()=>calls,
+ return {view,term,cx,store,sharedState,routes,createView,snapshot:usageSnapshot,advance:ms=>now+=ms,calls:()=>calls,
  flush:async()=>{for(let i=0;i<tasks.length;i++)await tasks[i];}};
 }
 test('a historical log snapshot cannot skip account queries or override a fresh account result',async()=>{
@@ -95,4 +102,33 @@ test('future log clocks cannot pin a historical quota ahead of account queries',
 test('the transcript retains rate-limit event time rather than the time an old log is loaded',()=>{
  const t=new Transcript('codex');t.feed(JSON.stringify({type:'event_msg',timestamp:'2026-11-01T00:00:00Z',payload:{type:'token_count',rate_limits:quota(80)}}));
  assert.equal(t.limitsTimestamp,Date.parse('2026-11-01T00:00:00Z'));
+});
+test('expired historical log rate limits whose resets_at passed are reset on binding',async()=>{
+ const s=setup({query:()=>new Promise(()=>{})});
+ s.view.t={limits:{primary:{used_percent:95,resets_at:900},secondary:{used_percent:60,resets_at:2000}},limitsTimestamp:500000};
+ s.view.loadUsageLimits(s.term,'codex',s.cx);
+ const snap=s.view.currentUsageSnapshot();
+ assert.equal(snap.limits.fiveHour.pct,0);
+ assert.equal(snap.limits.fiveHour.resetsAt,null);
+ assert.equal(snap.limits.sevenDay.pct,60);
+});
+test('fresh API limits are shared via chat.usageLimits across independent Chat instances',async()=>{
+ const sharedState=new Map();
+ const first=setup({sharedState,query:()=>[{rateLimits:quota(24)}]});
+ first.view.loadUsageLimits(first.term,'codex',first.cx);
+ await first.flush();
+ const second=setup({sharedState,query:()=>new Promise(()=>{})});
+ second.view.t={limits:{primary:{used_percent:95,resets_at:900},secondary:{used_percent:65,resets_at:2000}},limitsTimestamp:500000};
+ second.view.loadUsageLimits(second.term,'codex',second.cx);
+ const snap=second.view.currentUsageSnapshot();
+ assert.equal(snap.source,'api');
+ assert.equal(snap.limits.fiveHour.pct,24);
+ assert.equal(snap.limits.sevenDay.pct,25);
+});
+test('contextBadge keys each ring element id by percentage to force GPUI repaint',async()=>{
+ const s=setup({query:()=>[{rateLimits:quota(24)}]});
+ s.view.loadUsageLimits(s.term,'codex',s.cx);await s.flush();
+ const badge=s.view.contextBadge({border:'#333',input:'#444',muted:'#aaa'});
+ assert.equal(badge.childNodes[0].childNodes[0].elementId,'limit-5h-badge-ring-24');
+ assert.equal(badge.childNodes[1].childNodes[0].elementId,'limit-7d-badge-ring-25');
 });

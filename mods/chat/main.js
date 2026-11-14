@@ -3652,10 +3652,14 @@ export default class Chat extends View {
       : (term.report?.msg || "Working…");
     const icon = (id, text, action, on) => div().id(id).flex_none().size(30).rounded_full().flex().items_center().justify_center()
       .cursor_pointer().text_size(16).text_color(t.muted).when(Boolean(on), (el) => el.bg(t.hover))
-      .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
-    const card = v_flex().w_full().max_w(900).rounded(18).border(0.5).border_color(settings().dark || this.inputFocused ? t.input : t.border)
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_click((event, cx) => { cx.stop_propagation(); action(event, cx); }).child(text);
+    const focusComposer = (_event, cx) => { cx.stop_propagation(); this.input.focus(); cx.notify(); };
+    const card = v_flex().id("composer-card").w_full().max_w(900).rounded(18).border(0.5).border_color(settings().dark || this.inputFocused ? t.input : t.border)
+      .on_click(focusComposer)
       .bg(settings().dark ? t.background : "#00000000").when(settings().dark, el => el.shadow_sm())
       .when(this.attach.length > 0, (el) => el.child(h_flex().px(12).pt(12).gap(8).flex_wrap()
+        .on_click((_event, cx) => cx.stop_propagation())
         .children(this.attach.map((attachment, index) => this.attachmentPreview(attachment, index, t)))))
       .child(div().id("composer").w_full()
         .when(Boolean(this.slash()), (el) => el.key_context(this.slash().nav ? "ChatMenuNav" : "ChatMenu"))
@@ -3675,15 +3679,16 @@ export default class Chat extends View {
       .child(h_flex().px(8).pb(8).gap(4).items_center()
         .child(icon("attach", svg("mods/chat/icons/attachment.svg").size(14), (_e, cx) => this.pickFiles(cx)).size(26).tooltip("Attach files"))
         .child(div().flex_1())
-        .when(!this.dialog && Boolean(this.term), (el) => el.child(this.modeMenu(term, t)).child(this.modelMenu(term, t)))
-        .when(Boolean(ctxBadge), (el) => el.child(ctxBadge))
+        .when(!this.dialog && Boolean(this.term), (el) => el.child(h_flex().flex_none().gap(4).items_center()
+          .on_click((_event, cx) => cx.stop_propagation()).child(this.modeMenu(term, t)).child(this.modelMenu(term, t))))
+        .when(Boolean(ctxBadge), (el) => el.child(div().flex_none().on_click((_event, cx) => cx.stop_propagation()).child(ctxBadge)))
         .child(div().id("send").flex_none().size(28).rounded_full().flex().items_center().justify_center().cursor_pointer()
           .text_size(stop ? 12 : 16).font_semibold()
           .bg(stop ? t.accent : typed || this.dialog ? t.solid : t.raised)
           .text_color(stop ? t.accent_foreground : typed || this.dialog ? t.solid_foreground : t.dim)
           .hover((s) => s.opacity(0.85))
           .when(!working || stop || this.dialog, el => el.tooltip(stop ? "Stop" : this.dialog ? "Start" : "Send"))
-          .on_click((_e, cx) => (stop ? hc(["interrupt", this.term]) : this.send(cx)))
+          .on_click((_e, cx) => { cx.stop_propagation(); return stop ? hc(["interrupt", this.term]) : this.send(cx); })
           .child(stop ? div().size(12).flex_none().rounded(2).bg(t.accent_foreground) : "↑")));
     return v_flex().flex_none().bg(t.background).rounded_b(9).overflow_hidden().px(16).pb(14).gap(8)
       .when(Boolean(this.t?.issue?.usage), el => el.child(h_flex().w_full().justify_center().child(

@@ -2076,15 +2076,17 @@ export default class Chat extends View {
     if (!addr) return;
     const list = terminals();
     const term = list.find((x) => x.address === addr) ?? null;
-    const asking = Boolean(term?.state === "live" && (this.idleAsk || this.t?.hasOpenQuestion?.()));
+    const kind = term?.state === "live"
+      ? (this.idleAsk ? "blocked" : this.t?.hasOpenQuestion?.() ? "question" : null)
+      : null;
     const cur = shared("chat.asking");
     const map = cur && typeof cur === "object" ? cur : {};
     const live = new Set(list.filter((x) => x.state === "live").map((x) => x.address));
     const pruned = Object.entries(map).filter(([k]) => k !== addr && live.has(k));
     const samePruned = pruned.length === Object.keys(map).filter((k) => k !== addr).length;
-    if (Boolean(map[addr]) === asking && samePruned) return;
+    if ((map[addr] ?? null) === kind && samePruned) return;
     const next = Object.fromEntries(pruned);
-    if (asking) next[addr] = true;
+    if (kind) next[addr] = kind;
     setShared("chat.asking", next);
   }
 

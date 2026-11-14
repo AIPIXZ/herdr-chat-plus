@@ -25,7 +25,10 @@ function toggleSidebar() {
   run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 56 : 44 });
 }
 
-const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+const clean = (s) => (s ?? "")
+  .replace(/^\[[^\]]*\]\s*Action Required(?:\s*\|\s*|$)/i, "")
+  .replace(/^[^\p{L}\p{N}]+/u, "")
+  .trim();
 
 function leadPanes(all) {
   const leads = new Map();

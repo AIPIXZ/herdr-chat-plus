@@ -8,7 +8,7 @@
 // with "• ", its tool lines naming what it does, output under "└".
 const CLAUDE = { mark: "⏺ ", prompt: /^❯ \S/, run: /^! \S/, tool: /^⏺ [\w.:-]+\(|^⏺ (Read|Searched|Listed|Wrote|Updated|Edited|Fetched|Ran|Called|Found)\b.*\b(file|files|pattern|patterns|lines?|director(y|ies)|command|tools?)\b/ };
 const CODEX = { mark: "• ", prompt: /^› \S/, run: /^\$ \S/, tool: /^• (Running|Ran|Explored|Exploring|Edited|Editing|Read|Reading|Searched|Searching|Called|Calling|Updated Plan|Added|Deleted|Listed|Viewed|Applied|Proposed)\b/ };
-const STATUS = /^• (Working|Waiting|Interrupted)\b/;
+const STATUS = /^• (Working|Waiting|Interrupted|Queued follow-up inputs|Messages to be submitted)\b/;
 const WORKED = /^(?:\s*(?:─+\s*)?Worked for \d|[·✻✽✶✳✢]\s+[A-Za-z]+\s+for\s+\d)/;
 const CLAUDE_STATUS = /^(?:[·✻✽✶✳✢]\s+\S.*(?:\u2026|\.\.\.|\besc to interrupt\b)|• (Working|Waiting|Interrupted)\b)/;
 // The full-screen view's one-line summaries of tool calls ("Running 1 shell

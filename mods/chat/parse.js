@@ -1,5 +1,5 @@
 // Turns Claude Code and Codex session logs (JSONL) into chat entries:
-// { kind: "user" | "assistant" | "tools" | "note", key, text, images, items }.
+// { kind: "user" | "assistant" | "tools" | "note" | "question", key, text, images, items }.
 // Images come out as { data (base64) | path, ext } for the view to cache.
 
 // hc delivers user text in an envelope. Unwrap only this transport tag;
@@ -138,6 +138,60 @@ export function summarize(input) {
   return "";
 }
 
+const ASYNC_QUESTION_TOOLS = new Set([
+  "request_user_input_async",
+  "request_user_input",
+  "send_user_message_async",
+  "send_message_to_user_async",
+]);
+
+function normalizeQuestionList(items) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const text = String(item.question ?? item.prompt ?? item.title ?? item.message ?? item.text ?? "").trim();
+    const header = String(item.header ?? "").trim();
+    const title = text || header;
+    const options = Array.isArray(item.options)
+      ? item.options.map((opt) => {
+          if (typeof opt === "string") {
+            const label = opt.trim();
+            return label ? { label, description: "" } : null;
+          }
+          if (!opt || typeof opt !== "object") return null;
+          const label = String(opt.label ?? opt.title ?? opt.text ?? opt.value ?? "").trim();
+          if (!label) return null;
+          const description = String(opt.description ?? opt.detail ?? "").trim();
+          return { label, description };
+        }).filter(Boolean)
+      : [];
+    if (!title && !options.length) continue;
+    out.push({ id: item.id ?? null, header, question: text || header, title, options });
+  }
+  return out;
+}
+
+export function parseAsyncQuestions(name, input) {
+  if (!ASYNC_QUESTION_TOOLS.has(name)) return null;
+  let obj = input;
+  if (typeof obj === "string") {
+    try { obj = JSON.parse(obj); } catch { return null; }
+  }
+  if (!obj || typeof obj !== "object") return null;
+  if (Array.isArray(obj.questions)) {
+    const qs = normalizeQuestionList(obj.questions);
+    return qs.length ? qs : null;
+  }
+  const single = String(obj.question ?? obj.message ?? obj.text ?? obj.prompt ?? "").trim();
+  const options = Array.isArray(obj.options) ? obj.options : undefined;
+  if (single || options?.length) {
+    const qs = normalizeQuestionList([{ id: obj.id, header: obj.header, question: single, options }]);
+    return qs.length ? qs : null;
+  }
+  return null;
+}
+
 export class Transcript {
   constructor(kind) {
     this.kind = kind;
@@ -148,6 +202,8 @@ export class Transcript {
     this.issue = null;
     this.turnId = null;
     this.title = null;
+    this.pendingQuestion = null;
+    this.questionCallIds = new Set();
     // Messages waiting in Claude Code's own queue (sent while it worked), as its
     // queue operations record them: taken in order, absorbed mid-turn, or popped
     // back into its input.
@@ -177,6 +233,36 @@ export class Transcript {
     entry.key = `e${this.next++}`;
     this.entries.push(entry);
     return entry;
+  }
+
+  question(id, questions) {
+    if (!questions?.length) return null;
+    if (id && this.questionCallIds.has(id)) return null;
+    if (id) this.questionCallIds.add(id);
+    for (const prev of this.entries) {
+      if (prev.kind === "question" && !prev.answered && !prev.closed) prev.closed = true;
+    }
+    const text = questions
+      .map((q) => [q.header, q.question || q.title, ...(q.options ?? []).map((o) => o.label)].filter(Boolean).join(" "))
+      .join("\n");
+    const entry = this.push({ kind: "question", id: id ?? null, questions, text, answered: false, closed: false, answer: null });
+    this.pendingQuestion = entry;
+    return entry;
+  }
+
+  answerQuestion(answer = null, callId = null) {
+    let target = callId ? this.entries.find((e) => e.kind === "question" && e.id === callId) : this.pendingQuestion;
+    if (!target && !callId) {
+      for (let i = this.entries.length - 1; i >= 0; i--) {
+        const e = this.entries[i];
+        if (e.kind === "question" && !e.answered && !e.closed) { target = e; break; }
+      }
+    }
+    if (!callId || this.pendingQuestion === target) this.pendingQuestion = null;
+    if (!target || target.closed) return null;
+    target.answered = true;
+    if (answer && !target.answer) target.answer = String(answer);
+    return target;
   }
 
   last() { return this.entries[this.entries.length - 1]; }
@@ -245,6 +331,7 @@ export class Transcript {
       this.turnId = `turn-${this.next}`;
       this.issue = null;
     }
+    this.answerQuestion(text || null);
     this.push({ kind: "user", text, images, files, ...(incoming.from ? { from: incoming.from } : {}) });
     if (this.turnState) {
       this.turnState.userCount++;
@@ -515,6 +602,7 @@ export class Transcript {
       return;
     }
     if (d.type === "event_msg" && p.type === "task_complete") {
+      this.pendingQuestion = null;
       if (this.codexTurn) {
         this.codexTurn.stage = "completed";
         this.codexTurn.turnStarted = false;
@@ -525,6 +613,7 @@ export class Transcript {
       return this.completed(duration, d.timestamp, p.turn_id ?? p.root_turn_id ?? d.timestamp);
     }
     if (d.type === "event_msg" && p.type === "turn_aborted") {
+      this.pendingQuestion = null;
       if (this.codexTurn) {
         this.codexTurn.stage = "completed";
         this.codexTurn.turnStarted = false;
@@ -545,6 +634,19 @@ export class Transcript {
     }
     if (d.type === "event_msg" && p.type === "agent_reasoning") {
       this.thinking(p.text);
+      return;
+    }
+    if (d.type === "event_msg" && p.type === "item_completed" && p.item?.type === "AgentMessage" && p.item?.delivery === "async") {
+      const item = p.item;
+      if (item.id && this.questionCallIds.has(item.id)) return;
+      let qs = normalizeQuestionList(item.questions);
+      if (!qs.length) {
+        const text = (Array.isArray(item.content)
+          ? item.content.map((c) => (typeof c === "string" ? c : c?.text ?? "")).join("")
+          : toText(item.content)).trim();
+        if (text) qs = normalizeQuestionList([{ question: text }]);
+      }
+      if (qs.length) this.question(item.id ?? null, qs);
       return;
     }
     if (d.type !== "response_item") return;
@@ -585,15 +687,34 @@ export class Transcript {
       if (texts.length || images.length) this.user(texts.join("\n"), images);
     } else if (/_call$/.test(p.type)) {
       const id = p.call_id ?? p.id ?? `call-${this.next}-${this.revision}`;
-      this.toolUse(id, p.name ?? p.type.replace(/_call$/, ""), p.arguments ?? p.input ?? p.action);
-      if (p.type === "web_search_call" && p.status && p.status !== "in_progress") {
-        this.toolResult(id, p.action?.query ? `Searched: ${p.action.query}` : "Completed", p.status === "failed");
+      const name = p.name ?? p.type.replace(/_call$/, "");
+      const qs = parseAsyncQuestions(name, p.arguments ?? p.input ?? p.action);
+      if (qs) {
+        this.question(id, qs);
+      } else {
+        this.toolUse(id, name, p.arguments ?? p.input ?? p.action);
+        if (p.type === "web_search_call" && p.status && p.status !== "in_progress") {
+          this.toolResult(id, p.action?.query ? `Searched: ${p.action.query}` : "Completed", p.status === "failed");
+        }
       }
       if (this.codexTurn) {
         this.codexTurn.toolCount++;
         if (this.codexTurn.stage !== "completed") this.codexTurn.stage = "awaiting_text";
       }
     } else if (/_call_output$/.test(p.type)) {
+      if (this.questionCallIds.has(p.call_id)) {
+        let out = p.output;
+        if (typeof out === "string") { try { out = JSON.parse(out); } catch {} }
+        if (out?.answers && typeof out.answers === "object") {
+          const reply = Object.values(out.answers)
+            .flatMap((v) => (Array.isArray(v?.answers) ? v.answers : (typeof v === "string" ? [v] : [])))
+            .map((s) => String(s).trim())
+            .filter(Boolean)
+            .join(", ");
+          this.answerQuestion(reply || null, p.call_id);
+        }
+        return;
+      }
       this.toolResult(p.call_id, p.output, p.status === "failed");
     }
   }

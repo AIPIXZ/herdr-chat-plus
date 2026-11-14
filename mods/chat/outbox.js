@@ -15,8 +15,9 @@ export class Outbox {
   // for crash recovery without presenting them as queued follow-ups.
   canSendDirect(context) {
     this.observe(context);
-    return Boolean(context.scope) && ["idle", "done"].includes(context.status)
-      && this.gate?.scope !== context.scope
+    const ready = ["idle", "done"].includes(context.status) && this.gate?.scope !== context.scope;
+    const answering = Boolean(context.answering) && context.status === "working";
+    return Boolean(context.scope) && (ready || answering)
       && !this.items.some(item => (item.scope === context.scope && !(item.direct && item.state === "error")) || item.state === "sending");
   }
   get visibleItems() {
@@ -57,10 +58,12 @@ export class Outbox {
     const item = id ? this.items.find(item => item.id === id)
       : this.items.find(item => item.scope === context.scope && !(item.direct && item.state === "error"));
     if (!item || (!id && item.scope !== context.scope) || item.state === "sending") return null;
-    if (!id && ((this.gate?.scope === context.scope) || item.state !== "queued" || !["idle", "done"].includes(context.status))) return null;
+    const canAuto = (["idle", "done"].includes(context.status) && this.gate?.scope !== context.scope)
+      || (Boolean(context.answering) && context.status === "working");
+    if (!id && (!canAuto || item.state !== "queued")) return null;
     if (id) item.scope = context.scope;
     this.previousGate = this.gate;
-    this.gate = { scope: context.scope, turn: context.turn, sawBusy: false, at: context.now ?? Date.now() };
+    this.gate = { scope: context.scope, turn: context.turn, sawBusy: context.status === "working", at: context.now ?? Date.now() };
     item.state = "sending";
     item.error = null;
     return item;

@@ -34,10 +34,28 @@ export function titleMatchesFile(identity, file) {
   return Boolean(id && id.toLowerCase().startsWith(identity.prefix));
 }
 
+const ACTION_REQUIRED = /^\[[^\]]*\]\s*Action Required$/i;
+
+export function hasActionRequired(terminal) {
+  if (terminal?.state !== "live") return false;
+  if (!codexTitleIdentity(terminal) && terminal?.report?.app !== "codex") return false;
+  const first = terminal?.title?.split(" | ")[0]?.trim() ?? "";
+  return ACTION_REQUIRED.test(first);
+}
+
 export function conversationTitle(terminal) {
   const identity = codexTitleIdentity(terminal);
-  if (!identity) return terminal?.title ?? "";
+  if (!identity) {
+    const raw = terminal?.title ?? "";
+    const parts = raw.split(" | ");
+    if (ACTION_REQUIRED.test(parts[0]?.trim() ?? "")) {
+      if (parts.length > 1) return parts.slice(1).join(" | ").trim() || "Codex";
+      if (terminal?.report?.app === "codex") return "Codex";
+    }
+    return raw;
+  }
   const parts = terminal.title.split(" | ").slice(0, -1);
+  if (ACTION_REQUIRED.test(parts[0]?.trim() ?? "")) parts.shift();
   if (parts[0] === "codex") parts.shift();
   // A new, unnamed Codex thread uses its full UUID as its title too.
   if (/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(parts[0] ?? "")) parts.shift();

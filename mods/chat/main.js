@@ -1921,6 +1921,7 @@ export default class Chat extends View {
           this.grew = true;
           if (this.chatVisible()) this.cacheShown(cx);
           this.nameSpace();
+          if (this.t?.pendingQuestion && this.outbox?.items.length) this.pumpOutbox(cx);
           if (state.kind === "codex" || state.kind === "claude") {
             const st = this.t?.turnState ?? this.t?.codexTurn;
             this.tracer?.record("tail_batch", {
@@ -2070,7 +2071,12 @@ export default class Chat extends View {
     const kind = agentKind(term);
     const verified = ["codex", "claude"].includes(kind) && (kind !== "codex" || (this.sessionResolved
       && (!title || !this.file || titleMatchesFile(title, this.file))));
-    return { scope: verified ? outboxScope(term, session) : null, status: this.idleAsk ? "blocked" : term?.status, turn: term?.turn };
+    return {
+      scope: verified ? outboxScope(term, session) : null,
+      status: this.idleAsk ? "blocked" : term?.status,
+      turn: term?.turn,
+      answering: Boolean(this.t?.pendingQuestion),
+    };
   }
 
   loadOutbox() {
@@ -2113,6 +2119,7 @@ export default class Chat extends View {
     const item = this.outbox.claim(context, id);
     this.saveOutbox();
     if (!item) return;
+    if (context.answering) this.t?.answerQuestion?.(item.text);
     const target = this.term;
     if (["idle", "done"].includes(context.status)) { this.stream = null; this.running = null; }
     this.beforeCodexPending?.(context, item);
@@ -2814,6 +2821,7 @@ export default class Chat extends View {
         .child(div().min_w(0).truncate().tooltip(e.detail ?? e.text).child(e.text))
         .when(Boolean(time), el => el.child(div().flex_none().child(`· ${time}`)));
     }
+    if (e.kind === "question") return this.questionCard(e, t);
     if (e.kind === "card") return this.card(e, t);
     if (e.kind === "output") return this.plainOutput(`out-${e.key}`, e.text, t, Boolean(e.error));
     if (e.kind === "note") {
@@ -3418,6 +3426,78 @@ export default class Chat extends View {
     return scroll;
   }
 
+  answerQuestionCard(entry, text, cx) {
+    const reply = String(text ?? "").trim();
+    if (!reply) return;
+    const context = this.queueContext();
+    if (!context.scope && ["working", "blocked"].includes(this.terminal()?.status)) {
+      this.error = "Wait for the conversation to be identified before replying.";
+      cx.notify();
+      return;
+    }
+    entry.answered = true;
+    entry.answer = reply;
+    this.t?.answerQuestion?.(reply, entry.id ?? null);
+    this.off = 0;
+    if (context.scope) {
+      const item = this.outbox.enqueue({ text: reply, paths: [], attachments: [], direct: true }, context.scope);
+      this.saveOutbox();
+      if (item) this.pumpOutbox(cx, item.id);
+    } else {
+      cx.spawn(async (cx) => this.deliver(reply, [], cx));
+    }
+    cx.notify();
+  }
+
+  questionCard(e, t) {
+    const active = !e.answered && !e.closed;
+    const questions = e.questions ?? [];
+    const hasOptions = questions.some((q) => (q.options?.length ?? 0) > 0);
+    const statusText = e.answered
+      ? (e.answer ? `Answered: ${e.answer}` : "Answered")
+      : e.closed
+        ? "Closed"
+        : hasOptions
+          ? "Choose an option or reply below"
+          : "Reply below to answer";
+    const card = v_flex().w_full().min_w(0).px(12).py(10).gap(8).rounded(10)
+      .bg(t.raised).border_1().border_color(active ? t.blocked : t.border)
+      .child(h_flex().w_full().min_w(0).gap(8).items_center()
+        .child(div().flex_none().text_size(11).font_semibold().text_color(active ? t.blocked : t.muted).child("Question"))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(statusText)));
+    for (let qi = 0; qi < questions.length; qi++) {
+      const q = questions[qi];
+      const qBox = v_flex().w_full().min_w(0).gap(6);
+      if (q.header && q.header !== q.question) {
+        qBox.child(div().text_size(11).font_semibold().text_color(t.muted).child(q.header));
+      }
+      const body = q.question || q.title;
+      if (body) {
+        qBox.child(div().w_full().min_w(0).text_color(t.foreground).child(this.markdown(`qc-${e.key}-${qi}`, body)));
+      }
+      if (active && q.options?.length) {
+        const hasDesc = q.options.some((opt) => Boolean(opt.description));
+        const multiQ = questions.length > 1;
+        const optWrap = hasDesc ? v_flex().w_full().gap(4) : h_flex().w_full().flex_wrap().gap(6);
+        for (let oi = 0; oi < q.options.length; oi++) {
+          const opt = q.options[oi];
+          const reply = multiQ ? `${q.header || `Q${qi + 1}`}: ${opt.label}` : opt.label;
+          const btn = this.button(`qc-${e.key}-${qi}-${oi}`, opt.label, (_, cx) => this.answerQuestionCard(e, reply, cx), t, oi === 0);
+          if (hasDesc && opt.description) {
+            optWrap.child(h_flex().w_full().min_w(0).gap(8).items_center()
+              .child(btn)
+              .child(div().flex_1().min_w(0).text_size(11).text_color(t.muted).child(opt.description)));
+          } else {
+            optWrap.child(btn);
+          }
+        }
+        qBox.child(optWrap);
+      }
+      card.child(qBox);
+    }
+    return card;
+  }
+
   promptQuestion(id, question, t) {
     const mono = settings().font_family;
     const blocks = (question ?? "").split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
@@ -3534,7 +3614,11 @@ export default class Chat extends View {
     const chosen = !this.dialog && !this.slash() && this.input.content().tokens.length > 0 ? this.typedCommand() : null;
     const stop = working && !typed && !this.dialog;
     const ctxBadge = !this.dialog ? this.contextBadge(t) : null;
-    const showWorkingRow = working && (!this.running || inlineQueue || (term.report?.msg && term.report.msg !== this.running.title));
+    const waitingReply = Boolean(this.t?.pendingQuestion);
+    const showWorkingRow = working && (waitingReply || !this.running || inlineQueue || (term.report?.msg && term.report.msg !== this.running.title));
+    const workingText = waitingReply
+      ? (term.report?.msg ? `${term.report.msg} · Waiting for your reply (sends now)` : "Waiting for your reply — next message sends now")
+      : (term.report?.msg || "Working…");
     const icon = (id, text, action, on) => div().id(id).flex_none().size(30).rounded_full().flex().items_center().justify_center()
       .cursor_pointer().text_size(16).text_color(t.muted).when(Boolean(on), (el) => el.bg(t.hover))
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
@@ -3576,9 +3660,9 @@ export default class Chat extends View {
           .child(div().flex_1().min_w(0).text_size(12).text_color(t.blocked)
             .tooltip(this.t.issue.message).child("Usage limit reached · queued messages are paused"))
           .child(this.button("usage-terminal", "Show TUI", (_e, cx) => this.showTerminal(cx), t)))))
-      .when(showWorkingRow, (el) => el.child(h_flex().w_full().justify_center().child(h_flex().w_full().max_w(900).px(6).gap(8).items_center().text_size(12).text_color(t.muted)
+      .when(showWorkingRow, (el) => el.child(h_flex().w_full().justify_center().child(h_flex().w_full().max_w(900).px(6).gap(8).items_center().text_size(12).text_color(waitingReply ? t.blocked : t.muted)
         .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
-        .child(div().flex_1().min_w(0).truncate().child(term.report?.msg || "Working…"))
+        .child(div().flex_1().min_w(0).truncate().child(workingText))
         .when(inlineQueue, row => row.child(this.outboxView(t, true))))))
       .when((status === "blocked" || Boolean(this.idleAsk)) && Boolean(this.t), (el) => el.child(h_flex().w_full().justify_center()
         .child(div().w_full().max_w(900).child(this.promptBox("The agent is asking:", t)))))

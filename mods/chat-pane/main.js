@@ -1,6 +1,6 @@
 import { openChat as openConversation, showTerminal, presentationPane } from "./presentation.js";
 import { qualifyAddress, machineOfTab } from "./identity.js";
-import { conversationTitle } from "./title.js";
+import { conversationTitle, hasActionRequired } from "./title.js";
 // A pane's header, for layouts that frame their panes:
 //   { "tab": "active", "pane": { "header": { "content": { "mod": "chat-pane" } } } }
 // Shows the program's icon (the app's program table), the agent's name or
@@ -188,7 +188,7 @@ export default class Pane extends View {
         .tooltip("Terminal address").child(pair.term.address))
       .child(div().flex_1().min_w(0).truncate().font_semibold().text_color(t.foreground).child(title))
       .when(pair.term.status === "working", (el) => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.working).spin(900)))
-      .when(pair.term.status === "blocked", (el) => el.child(div().text_size(11).text_color(t.blocked).child("Needs you")))
+      .when(pair.term.status === "blocked" || hasActionRequired(pair.term), (el) => el.child(div().text_size(11).text_color(t.blocked).child("Needs you")))
       .when(chatMode, (el) => el.child(div().id(`chat-search-${p.pane}`).size(26).flex_none()
         .flex().items_center().justify_center().rounded(6).cursor_pointer().text_color(t.muted)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Search conversation")

@@ -29,6 +29,35 @@ function folder(cwd) {
   return cwd === h ? "~" : cwd.startsWith(h + "/") ? "~" + cwd.slice(h.length) : cwd;
 }
 
+function needsYou(term, p) {
+  const asking = shared("chat.asking");
+  const isAsking = Boolean(
+    asking && typeof asking === "object" && ((term?.address && asking[term.address]) || (p?.terminal && asking[p.terminal])),
+  );
+  return (
+    term?.status === "blocked" ||
+    p?.status === "blocked" ||
+    hasActionRequired(term) ||
+    hasActionRequired(p) ||
+    isAsking
+  );
+}
+
+function needsYouBadge(t) {
+  return div()
+    .flex_none()
+    .px(6)
+    .h(18)
+    .flex()
+    .items_center()
+    .rounded(5)
+    .bg(t.blocked + "26")
+    .text_size(10.5)
+    .font_semibold()
+    .text_color(t.blocked)
+    .child("Needs you");
+}
+
 export default class Pane extends View {
   init(_props, cx) {
     this.hovered = false;
@@ -106,6 +135,8 @@ export default class Pane extends View {
     if (pair) return this.conversationHeader(p, pair, t);
     const name = ((p.program?.agent || p.program?.shell) && p.program.name) || p.title || p.program?.name || "shell";
     const pic = icon(p.program, 14, t.dim);
+    const term = p.terminal ? terminals().find((x) => x.address === p.terminal) : null;
+    const blocked = needsYou(term, p);
     const st = p.status;
     const pane = p.pane;
     return h_flex()
@@ -124,8 +155,8 @@ export default class Pane extends View {
       .child(div().flex_none().truncate().max_w(260).font_medium().text_color(t.foreground).child(name))
       .when(Boolean(p.terminal), (el) => el.child(div().flex_none().text_color(t.muted).child(p.terminal)))
       .child(div().flex_1().truncate().text_color(t.dim).child(folder(p.cwd)))
-      .when(st === "working", el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
-      .when(st === "blocked", el => el.child(div().flex_none().px(6).h(18).flex().items_center().rounded(5).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).child("Needs you")))
+      .when(st === "working" && !blocked, el => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).flex_none().text_color(t.working).spin(900)))
+      .when(blocked, el => el.child(needsYouBadge(t)))
       .when(st === "done", el => el.child(div().size(7).flex_none().rounded(4).bg(t.done)))
       .when(this.hovered, el => el
         .child(this.splitButton(t, p, "right"))
@@ -170,6 +201,7 @@ export default class Pane extends View {
   conversationHeader(p, pair, t) {
     const space = spaces().find((s) => s.tabs?.some((tab) => tab.id === (pair.chat?.tab ?? p.tab)));
     const title = conversationTitle(pair.term) || pair.term.name || pair.term.report?.app || "Chat";
+    const blocked = needsYou(pair.term, p);
     const chatMode = Boolean(props()?.presentation) || p.mod === "chat";
     const segment = (mode, label) => div().id(`view-${mode}-${p.pane}`).px(12).h(28).rounded(7)
       .flex().items_center().justify_center().cursor_pointer().text_size(12.5).font_medium()
@@ -187,8 +219,8 @@ export default class Pane extends View {
       .child(div().flex_none().px(6).py(2).rounded(5).bg(t.chrome).text_size(11).text_color(t.muted)
         .tooltip("Terminal address").child(pair.term.address))
       .child(div().flex_1().min_w(0).truncate().font_semibold().text_color(t.foreground).child(title))
-      .when(pair.term.status === "working", (el) => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.working).spin(900)))
-      .when(pair.term.status === "blocked" || hasActionRequired(pair.term), (el) => el.child(div().text_size(11).text_color(t.blocked).child("Needs you")))
+      .when(pair.term.status === "working" && !blocked, (el) => el.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.working).spin(900)))
+      .when(blocked, (el) => el.child(needsYouBadge(t)))
       .when(chatMode, (el) => el.child(div().id(`chat-search-${p.pane}`).size(26).flex_none()
         .flex().items_center().justify_center().rounded(6).cursor_pointer().text_color(t.muted)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Search conversation")

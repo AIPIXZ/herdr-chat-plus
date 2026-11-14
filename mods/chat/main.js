@@ -1575,7 +1575,7 @@ export default class Chat extends View {
         await sleep(cx, 80);
       }
       await hc(["send", this.term, text]);
-      if (!P) { this.screenSeq++; this.screen = this.idleAsk = null; }
+      if (!P) { this.screenSeq++; this.screen = this.idleAsk = null; this.syncAsking?.(); }
       cx.notify();
     });
   }
@@ -1857,6 +1857,7 @@ export default class Chat extends View {
     const started = ["working", "idle", "done"].includes(term?.status);
     if (term?.status === "blocked" || (term && !this.t && term.state === "live" && !started)) {
       this.idleAsk = null;
+      this.syncAsking?.();
       const seq = ++this.screenSeq;
       cx.spawn(async (cx) => {
         const r = await hc(["read", this.term, "--lines", "40"]);
@@ -1878,12 +1879,14 @@ export default class Chat extends View {
         if (!ask && this.error === ASK_FIRST) this.error = null;
         this.idleAsk = ask;
         this.screen = ask ? screen : null;
+        this.syncAsking?.();
         cx.notify();
       });
     } else if (this.screen) {
       this.screenSeq++;
       this.screen = null;
       this.idleAsk = null;
+      this.syncAsking?.();
       cx.notify();
     }
   }
@@ -1922,6 +1925,7 @@ export default class Chat extends View {
           if (this.chatVisible()) this.cacheShown(cx);
           this.nameSpace();
           if (this.t?.pendingQuestion && this.outbox?.items.length) this.pumpOutbox(cx);
+          this.syncAsking?.();
           if (state.kind === "codex" || state.kind === "claude") {
             const st = this.t?.turnState ?? this.t?.codexTurn;
             this.tracer?.record("tail_batch", {
@@ -2022,6 +2026,7 @@ export default class Chat extends View {
         this.truncated = tail.truncated;
         this.historyLoading = false;
         this.grew = true;
+        this.syncAsking?.();
         if (this.chatVisible()) { this.cacheShown(cx); cx.notify(); }
         this.loadUsageLimits(this.terminal(), kind, cx);
         if (!previous && (kind === "codex" || kind === "claude") && this.term && this.terminal()?.status !== "working" && !this.codexHandoff?.seeded) {
@@ -2062,6 +2067,25 @@ export default class Chat extends View {
     if (!id) return;
     this.named = true;
     if (!spaces().find((s) => s.id === id)?.named) run("space.rename", { id, name: this.t.title.slice(0, 40) });
+  }
+
+  syncAsking() {
+    if (this.dialog || typeof shared !== "function" || typeof setShared !== "function" || typeof terminals !== "function") return;
+    let addr = null;
+    try { addr = this.term; } catch { return; }
+    if (!addr) return;
+    const list = terminals();
+    const term = list.find((x) => x.address === addr) ?? null;
+    const asking = Boolean(term?.state === "live" && (this.idleAsk || this.t?.hasOpenQuestion?.()));
+    const cur = shared("chat.asking");
+    const map = cur && typeof cur === "object" ? cur : {};
+    const live = new Set(list.filter((x) => x.state === "live").map((x) => x.address));
+    const pruned = Object.entries(map).filter(([k]) => k !== addr && live.has(k));
+    const samePruned = pruned.length === Object.keys(map).filter((k) => k !== addr).length;
+    if (Boolean(map[addr]) === asking && samePruned) return;
+    const next = Object.fromEntries(pruned);
+    if (asking) next[addr] = true;
+    setShared("chat.asking", next);
   }
 
   queueContext() {
@@ -2119,7 +2143,10 @@ export default class Chat extends View {
     const item = this.outbox.claim(context, id);
     this.saveOutbox();
     if (!item) return;
-    if (context.answering) this.t?.answerQuestion?.(item.text);
+    if (context.answering) {
+      this.t?.answerQuestion?.(item.text);
+      this.syncAsking?.();
+    }
     const target = this.term;
     if (["idle", "done"].includes(context.status)) { this.stream = null; this.running = null; }
     this.beforeCodexPending?.(context, item);
@@ -2519,6 +2546,7 @@ export default class Chat extends View {
       const menu = menuAtBottom(screen.stdout);
       if (menu) {
         this.idleAsk = menu; this.screen = screen.stdout;
+        this.syncAsking?.();
         const error = new Error("Waiting for your selection in the terminal prompt.");
         error.queuePaused = true;
         throw error;
@@ -3438,6 +3466,7 @@ export default class Chat extends View {
     entry.answered = true;
     entry.answer = reply;
     this.t?.answerQuestion?.(reply, entry.id ?? null);
+    this.syncAsking?.();
     this.off = 0;
     if (context.scope) {
       const item = this.outbox.enqueue({ text: reply, paths: [], attachments: [], direct: true }, context.scope);
@@ -3543,7 +3572,7 @@ export default class Chat extends View {
               q.checked[n] = !q.checked[n];
             } else {
               hc(["keys", this.term, ...choose(q.selected, n)]);
-              this.screenSeq++; this.screen = this.idleAsk = null;
+              this.screenSeq++; this.screen = this.idleAsk = null; this.syncAsking?.();
             }
             cx.notify();
           })
@@ -3614,7 +3643,7 @@ export default class Chat extends View {
     const chosen = !this.dialog && !this.slash() && this.input.content().tokens.length > 0 ? this.typedCommand() : null;
     const stop = working && !typed && !this.dialog;
     const ctxBadge = !this.dialog ? this.contextBadge(t) : null;
-    const waitingReply = Boolean(this.t?.pendingQuestion);
+    const waitingReply = Boolean(this.t?.hasOpenQuestion?.());
     const showWorkingRow = working && (waitingReply || !this.running || inlineQueue || (term.report?.msg && term.report.msg !== this.running.title));
     const workingText = waitingReply
       ? (term.report?.msg ? `${term.report.msg} · Waiting for your reply (sends now)` : "Waiting for your reply — next message sends now")
@@ -3760,6 +3789,7 @@ export default class Chat extends View {
     if (!this.dialog && !this.chatVisible()) return div().id("root").size_full();
     const t = theme();
     const term = this.term ? this.terminal() : null;
+    this.syncAsking?.();
     if (!this.dialog && !this.term) {
       return v_flex().id("root").size_full().bg(t.background).items_center().justify_center().text_color(t.dim)
         .child(`No agent here. Press ${shortcut("⇧N")} for a new chat.`);

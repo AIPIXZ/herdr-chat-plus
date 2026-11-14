@@ -78,6 +78,7 @@ test("Transcript parses request_user_input_async, deduplicates item_completed, i
   assert.equal(t.entries[0].answered, false);
   assert.equal(t.entries[0].closed, false);
   assert.equal(t.pendingQuestion, t.entries[0]);
+  assert.equal(t.hasOpenQuestion(), true);
 
   // Companion AgentMessage with same id must not duplicate the card or create a stray assistant bubble.
   t.feed(JSON.stringify({
@@ -105,6 +106,7 @@ test("Transcript parses request_user_input_async, deduplicates item_completed, i
   assert.equal(t.entries[0].answered, true);
   assert.equal(t.entries[0].answer, "mini");
   assert.equal(t.pendingQuestion, null);
+  assert.equal(t.hasOpenQuestion(), false);
   assert.equal(t.entries[1].kind, "user");
   assert.equal(t.entries[1].text, "mini");
 });
@@ -142,21 +144,25 @@ test("Transcript handles free-text AgentMessage item_completed, superseding ques
   assert.equal(t.pendingQuestion, null);
   assert.equal(t.entries[1].answered, false);
   assert.equal(t.entries[1].closed, false);
+  assert.equal(t.hasOpenQuestion(), true);
 
   // Subsequent user message still marks that open card answered.
   t.feed(codexUserMessage("DeepSeek"));
   assert.equal(t.entries[1].answered, true);
   assert.equal(t.entries[1].answer, "DeepSeek");
+  assert.equal(t.hasOpenQuestion(), false);
 
   // Sync request_user_input answered via function_call_output.
   t.feed(codexCall("request_user_input", {
     questions: [{ id: "env", header: "Env", question: "Pick env", options: [{ label: "prod" }, { label: "staging" }] }],
   }, "call-sync-3"));
+  assert.equal(t.hasOpenQuestion(), true);
   t.feed(codexCallOutput("call-sync-3", { answers: { env: { answers: ["staging"] } } }));
   const q3 = t.entries.find((e) => e.id === "call-sync-3");
   assert.equal(q3?.answered, true);
   assert.equal(q3?.answer, "staging");
   assert.equal(t.pendingQuestion, null);
+  assert.equal(t.hasOpenQuestion(), false);
 });
 
 test("liveSnapshot ignores Codex Queued follow-up inputs and Messages to be submitted status footers", () => {
@@ -256,6 +262,16 @@ test("title.js strips Codex Action Required prefixes and detects hasActionRequir
     state: "live",
     title: "[ . ] Action Required | Manual session",
     report: { app: "codex" },
+  }), true);
+
+  assert.equal(hasActionRequired({
+    app: "codex",
+    title: "[ ! ] Action Required | Fix bug",
+  }), true);
+
+  assert.equal(hasActionRequired({
+    program: { key: "codex" },
+    title: "[ . ] Action Required | Fix bug",
   }), true);
 
   assert.equal(hasActionRequired({

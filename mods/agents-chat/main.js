@@ -25,8 +25,9 @@ function toggleSidebar() {
   run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 56 : 44 });
 }
 
+const ACTION_REQUIRED = /^\[[^\]]*\]\s*Action Required(?:\s*\|\s*|$)/i;
 const clean = (s) => (s ?? "")
-  .replace(/^\[[^\]]*\]\s*Action Required(?:\s*\|\s*|$)/i, "")
+  .replace(ACTION_REQUIRED, "")
   .replace(/^[^\p{L}\p{N}]+/u, "")
   .trim();
 
@@ -52,7 +53,8 @@ function title(tab, l) {
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 // A sub-agent without a pane isn't in agents(): its raw word, error counting as
 // blocked. It's never done: it reports to its parent, and the parent's done is the news.
-const kidStatus = (k, listed) => {
+const kidStatus = (k, listed, asking) => {
+  if (ACTION_REQUIRED.test(k?.title ?? "") || asking?.[k?.address]) return "blocked";
   const s = listed.get(k.address) ?? k.status;
   return s === "error" ? "blocked" : s === "done" ? "idle" : s;
 };
@@ -181,7 +183,7 @@ export default class Agents extends View {
 
   subRow(t, s, shown, compact) {
     const k = s.t;
-    const st = kidStatus(k, this.listed);
+    const st = kidStatus(k, this.listed, this.asking);
     const pic = icon(k.program, 14, t.foreground);
     const on = k.address === shown;
     return h_flex()
@@ -221,9 +223,17 @@ export default class Agents extends View {
     if (props()?.sortMenu) return this.sortMenu(t);
     const collapsed = narrow();
     const sort = sortOf();
-    let list = agents();
-    this.listed = new Map(list.map((a) => [a.address, a.status]));
+    const asking = shared("chat.asking");
+    this.asking = asking && typeof asking === "object" ? asking : {};
     const all = terminals();
+    const byAddr = new Map(all.map((x) => [x.address, x]));
+    let list = agents().map((a) => {
+      if (ACTION_REQUIRED.test(a.title ?? "") || ACTION_REQUIRED.test(byAddr.get(a.address)?.title ?? "") || this.asking[a.address]) {
+        return { ...a, status: "blocked" };
+      }
+      return a;
+    });
+    this.listed = new Map(list.map((a) => [a.address, a.status]));
     this.migratePins(all);
     const shown = focused()?.agent;
     const spaceColors = shared("space.colors") ?? {};
@@ -236,7 +246,7 @@ export default class Agents extends View {
     const tabCounts = new Map();
     for (const a of list) tabCounts.set(a.tab, (tabCounts.get(a.tab) ?? 0) + 1);
     const byPriority = sort.id === "priority";
-    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed)] ?? 0))]));
+    const urgency = new Map(list.map((a) => [a.address, Math.max(this.rank(a), ...this.tree(all, a.address).map((s) => RANK[kidStatus(s.t, this.listed, this.asking)] ?? 0))]));
     const rankOf = (a) => urgency.get(a.address);
     if (byPriority) list = [...list].sort((x, y) => rankOf(y) - rankOf(x) || this.since(y) - this.since(x) || y.seq - x.seq);
     const pinned = list.filter((a) => a.pinned);
@@ -253,7 +263,7 @@ export default class Agents extends View {
 
     // The fold chevron; folded, the count too, colored by the most urgent one.
     const fold = (a, subs) => {
-      const sts = subs.map((s) => kidStatus(s.t, this.listed));
+      const sts = subs.map((s) => kidStatus(s.t, this.listed, this.asking));
       const top = sts.reduce((m, s) => ((RANK[s] ?? 0) > (RANK[m] ?? 0) ? s : m), null);
       const open = !this.folded.has(a.address);
       return div()

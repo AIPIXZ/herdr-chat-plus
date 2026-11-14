@@ -37,8 +37,13 @@ export function titleMatchesFile(identity, file) {
 const ACTION_REQUIRED = /^\[[^\]]*\]\s*Action Required$/i;
 
 export function hasActionRequired(terminal) {
-  if (terminal?.state !== "live") return false;
-  if (!codexTitleIdentity(terminal) && terminal?.report?.app !== "codex") return false;
+  if (!terminal || (terminal.state && terminal.state !== "live")) return false;
+  const isCodex =
+    Boolean(codexTitleIdentity(terminal)) ||
+    terminal?.report?.app === "codex" ||
+    terminal?.app === "codex" ||
+    terminal?.program?.key === "codex";
+  if (!isCodex) return false;
   const first = terminal?.title?.split(" | ")[0]?.trim() ?? "";
   return ACTION_REQUIRED.test(first);
 }

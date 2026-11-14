@@ -265,6 +265,15 @@ export class Transcript {
     return target;
   }
 
+  hasOpenQuestion() {
+    if (this.pendingQuestion && !this.pendingQuestion.answered && !this.pendingQuestion.closed) return true;
+    for (let i = this.entries.length - 1; i >= 0; i--) {
+      const e = this.entries[i];
+      if (e.kind === "question") return !e.answered && !e.closed;
+    }
+    return false;
+  }
+
   last() { return this.entries[this.entries.length - 1]; }
 
   note(text) { if (text) this.push({ kind: "note", text }); }

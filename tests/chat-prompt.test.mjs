@@ -38,3 +38,36 @@ test('multi-select checkbox prompts expose checked flags and toggleChoice sends 
  assert.deepEqual(q.options,['Fast mode','Audit logging','Type something else']);
  assert.deepEqual(toggleChoice(0,1),['down','space']);
 });
+test('Codex command approval strips preceding transcript and table scrollback and separates fields',()=>{
+ const approval=`› 你知道怎么增强小米音箱的AI chat吗
+───────────────────────── MiGPT ──────────
+Worked for 26s · 20:06
+
+› xiaogpt 也不用刷机吧
+
+• 对，xiaogpt 不用刷机。它运行在电脑、NAS 等设备上。
+
+  Would you like to run the following command?
+
+  Environment: local
+  Reason: 可以允许我通过 SSH 连接 t18，检查环境并部署 xiaogpt 吗？
+
+  $ ssh -o BatchMode=yes -o ConnectTimeout=8 t18 'uname -a; command -v docker; command -v python3; id; pwd'
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with \`ssh -o BatchMode=yes\`
+  3. No, and tell Codex what to do differently (esc)`;
+ const q=parsePrompt(approval);
+ assert.ok(q.question.startsWith('Would you like to run the following command?'));
+ assert.ok(!q.question.includes('小米音箱'));
+ assert.ok(!q.question.includes('Worked for 26s'));
+ assert.ok(!q.question.includes('xiaogpt 不用刷机'));
+ assert.deepEqual(q.question.split('\n\n'),[
+  'Would you like to run the following command?',
+  'Environment: local',
+  'Reason: 可以允许我通过 SSH 连接 t18，检查环境并部署 xiaogpt 吗？',
+  "$ ssh -o BatchMode=yes -o ConnectTimeout=8 t18 'uname -a; command -v docker; command -v python3; id; pwd'",
+ ]);
+ assert.equal(q.selected,0);
+ assert.equal(q.options.length,3);
+});

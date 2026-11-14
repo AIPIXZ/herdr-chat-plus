@@ -20,6 +20,10 @@ export function menuAtBottom(screen) {
 }
 
 const CHECKBOX = /^(?:\[([ xX✓✔])\]|(☐|☑))\s+/;
+const PROMPT_HEADER = /^\s*(?:Would you like to\b|Do you want to\b|Allow\s+\S+.*\?|Approaching rate limits\b|Rate limit reached\b)/i;
+const TRANSCRIPT_LINE = /^\s*(?:[›❯•●⏺]\s+|Worked for\s+\d)/i;
+const TABLE_OR_RULE = /[─━—]{4,}|[┌┬┐├┼┤└┴┘│]/;
+const FIELD_OR_CMD = /^(?:(?:Environment|Reason|Command|Directory|Working directory|Path|File|Host|Tool):\s|\$\s)/i;
 
 // { question, options: [text], selected, multi?, checked?, boxes? } or null when the screen has no menu.
 export function parsePrompt(screen) {
@@ -68,11 +72,16 @@ export function parsePrompt(screen) {
   }
   if (options.length < 2) return null;
 
-  // The question: what's above the options, back to the last rule line.
+  // The question: what's above the options, back to the last rule line or transcript boundary.
   let top = first;
   while (top > 0 && !RULE.test(lines[top - 1])) top--;
-  const banner = lines.slice(top, first).findIndex(line => /^\s*Approaching rate limits\b/i.test(line));
-  if (banner >= 0) top += banner;
+  for (let i = top; i < first; i++) {
+    if (PROMPT_HEADER.test(lines[i])) { top = i; break; }
+    if (TRANSCRIPT_LINE.test(lines[i]) || TABLE_OR_RULE.test(lines[i])) {
+      while (i + 1 < first && lines[i + 1].trim() && !PROMPT_HEADER.test(lines[i + 1])) i++;
+      top = i + 1;
+    }
+  }
   const question = reflow(lines.slice(top, first));
   return hasCheckbox
     ? { question, options, selected, multi: true, checked, boxes }
@@ -81,7 +90,14 @@ export function parsePrompt(screen) {
 
 // Terminal-wrapped text as paragraphs.
 export function reflow(lines) {
-  return lines.map((l) => l.trim()).join("\n").replace(/\n{2,}/g, "\u0000").replace(/\n/g, " ")
+  const out = [];
+  for (const raw of lines) {
+    const l = raw.trim();
+    if (!l) { out.push(""); continue; }
+    if (FIELD_OR_CMD.test(l) && out.length && out.at(-1) !== "") out.push("");
+    out.push(l);
+  }
+  return out.join("\n").replace(/\n{2,}/g, "\u0000").replace(/\n/g, " ")
     .split("\u0000").map((p) => p.trim()).filter(Boolean).join("\n\n");
 }
 

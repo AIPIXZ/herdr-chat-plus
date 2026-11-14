@@ -1606,9 +1606,9 @@ export default class Chat extends View {
         .child(this.button("panel-term", "Show terminal", (_e, cx) => this.showTerminal(cx), t))
         .child(this.button("panel-close", "Close", (_e, cx) => { this.panelKeys("esc"); this.panel = null; cx.notify(); }, t)))
       .when(Boolean(q), (el) => el
-        .when(Boolean(q.question), (d) => d.child(div().text_size(12.5).child(this.markdown("panel-q", q.question))))
-        .child(v_flex().gap(5).children(q.options.map((o, n) =>
-          h_flex().id(`po-${n}`).px(12).py(7).gap(10).rounded(8).cursor_pointer().border_1()
+        .when(Boolean(q.question), (d) => d.child(this.promptQuestion("panel-q", q.question, t)))
+        .child(v_flex().w_full().min_w(0).gap(5).children(q.options.map((o, n) =>
+          h_flex().id(`po-${n}`).w_full().min_w(0).px(12).py(7).gap(10).rounded(8).cursor_pointer().border_1()
             .border_color(n === q.selected ? t.accent : t.border).bg(n === q.selected ? t.selected : t.surface)
             .hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
             .on_click((_e, cx) => {
@@ -1623,7 +1623,7 @@ export default class Chat extends View {
             })
             .when(Boolean(q.multi && q.boxes?.[n]), (row) => row.child(div().flex_none().text_size(13)
               .text_color(q.checked?.[n] ? t.accent : t.dim).child(q.checked?.[n] ? "☑" : "☐")))
-            .child(div().flex_1().text_size(12.5).child(o)))))
+            .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(o)))))
         .when(hasCustom && Boolean(this.promptInput), (row) => row.child(h_flex().gap(6).items_center()
           .child(div().flex_1().child(Input.new(this.promptInput).text_size(12.5)))
           .child(this.button("po-custom-send", "Send", (_e, cx) => {
@@ -3418,6 +3418,26 @@ export default class Chat extends View {
     return scroll;
   }
 
+  promptQuestion(id, question, t) {
+    const mono = settings().font_family;
+    const blocks = (question ?? "").split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
+    return v_flex().w_full().min_w(0).max_h(240).overflow_y_scrollbar().gap(6)
+      .children(blocks.map((b, i) => {
+        if (/^\$\s+/.test(b)) {
+          const escaped = b.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          return div().w_full().min_w(0).px(10).py(8).rounded(8).bg(t.surface).border_1().border_color(t.border)
+            .when(Boolean(mono), (el) => el.font_family(mono))
+            .child(TextView.html(`${id}-cmd-${i}`, `<pre>${escaped}</pre>`).selectable(true).text_size(12).line_height("18px").text_color(t.foreground)
+              .when(Boolean(mono), (el) => el.font_family(mono)));
+        }
+        const field = /^(Environment|Reason|Command|Directory|Working directory|Path|File|Host|Tool):\s+([\s\S]+)$/i.exec(b);
+        if (field) {
+          return div().w_full().min_w(0).text_size(12.5).child(this.markdown(`${id}-${i}`, `**${field[1]}:** ${field[2]}`));
+        }
+        return div().w_full().min_w(0).text_size(12.5).child(this.markdown(`${id}-${i}`, b));
+      }));
+  }
+
   // A question on the agent's terminal: its text, and its choices as buttons
   // that move the selection there and confirm. Without a menu, the screen itself.
   promptBox(title, t) {
@@ -3427,13 +3447,13 @@ export default class Chat extends View {
     const key = (k, label) => this.button(`key-${k}`, label, () => hc(["keys", this.term, k]), t);
     const mono = settings().font_family;
     const lines = (this.screen ?? "").split("\n").filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
-    return v_flex().p(12).gap(10).rounded(10).border_1().border_color(t.blocked).bg(t.background)
+    return v_flex().w_full().min_w(0).p(12).gap(10).rounded(10).border_1().border_color(t.blocked).bg(t.background)
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().font_semibold().text_size(12.5).text_color(t.blocked).child(title))
         .child(this.button("go-term2", "Show terminal", (_e, cx) => this.showTerminal(cx), t)))
-      .when(Boolean(q?.question), (el) => el.child(div().text_size(12.5).child(this.markdown("question", q.question))))
-      .when(Boolean(q), (el) => el.child(v_flex().gap(6).children(q.options.map((o, n) =>
-        h_flex().id(`choice-${n}`).px(12).py(8).gap(10).rounded(8).cursor_pointer().border_1()
+      .when(Boolean(q?.question), (el) => el.child(this.promptQuestion("question", q.question, t)))
+      .when(Boolean(q), (el) => el.child(v_flex().w_full().min_w(0).gap(6).children(q.options.map((o, n) =>
+        h_flex().id(`choice-${n}`).w_full().min_w(0).px(12).py(8).gap(10).rounded(8).cursor_pointer().border_1()
           .border_color(n === q.selected ? t.accent : t.border).bg(n === q.selected ? t.selected : t.surface)
           .hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => {
@@ -3449,7 +3469,7 @@ export default class Chat extends View {
           })
           .child(div().flex_none().w(16).text_color(q.multi && q.boxes?.[n] && q.checked?.[n] ? t.accent : t.dim)
             .child(q.multi && q.boxes?.[n] ? (q.checked?.[n] ? "☑" : "☐") : String(n + 1)))
-          .child(div().flex_1().text_size(12.5).child(o)))))
+          .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(o)))))
         .when(hasCustom && Boolean(this.promptInput), (row) => row.child(h_flex().gap(6).items_center()
           .child(div().flex_1().child(Input.new(this.promptInput).text_size(12.5)))
           .child(this.button("choice-custom-send", "Send", (_e, cx) => {

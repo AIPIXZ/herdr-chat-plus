@@ -3653,7 +3653,7 @@ export default class Chat extends View {
     const icon = (id, text, action, on) => div().id(id).flex_none().size(30).rounded_full().flex().items_center().justify_center()
       .cursor_pointer().text_size(16).text_color(t.muted).when(Boolean(on), (el) => el.bg(t.hover))
       .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(text);
-    const card = v_flex().w_full().max_w(900).rounded(18).border(0.5).border_color(this.inputFocused ? t.input : t.border)
+    const card = v_flex().w_full().max_w(900).rounded(18).border(0.5).border_color(settings().dark || this.inputFocused ? t.input : t.border)
       .bg(settings().dark ? t.background : "#00000000").when(settings().dark, el => el.shadow_sm())
       .when(this.attach.length > 0, (el) => el.child(h_flex().px(12).pt(12).gap(8).flex_wrap()
         .children(this.attach.map((attachment, index) => this.attachmentPreview(attachment, index, t)))))

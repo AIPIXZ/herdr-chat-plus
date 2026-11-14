@@ -95,8 +95,9 @@ function makeCx() {
   const cx = {
     timer: {
       after(ms, fn) {
-        const t = setTimeout(fn, Math.min(ms, 5));
-        t.unref?.();
+        // Awaited mock timers must keep Node alive until their callbacks run.
+        // unref() lets Node 22 exit while flushTasks() is still awaiting sleep().
+        setTimeout(fn, Math.min(ms, 5));
       },
       every() {},
     },

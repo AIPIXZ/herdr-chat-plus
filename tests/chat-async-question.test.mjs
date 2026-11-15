@@ -194,6 +194,40 @@ test("liveSnapshot ignores Codex Queued follow-up inputs and Messages to be subm
   assert.equal(snap2.item, null);
 });
 
+test("liveSnapshot strips Codex TUI Back to bottom and status banners from replies and tool outputs", () => {
+  const replyScreen = [
+    "› explain the diff",
+    "",
+    "• The change updates the composer focus handler.",
+    "                                                      New activity · ↓ Back to bottom · esc",
+    "                                                                                   ⚠ weekly limit: 17% left · resets at 12:58 on 19 Nov · /status",
+    "",
+    "› Ask Codex to do anything",
+  ].join("\n");
+  const snap1 = liveSnapshot(replyScreen, "codex");
+  assert.deepEqual(snap1.item, {
+    kind: "text",
+    text: "The change updates the composer focus handler.",
+  });
+
+  const toolScreen = [
+    "› run checks",
+    "",
+    "• Ran npm test",
+    "  └ 311 passed",
+    "                                                                     ↓ Back to bottom · esc",
+    "",
+    "› Ask Codex to do anything",
+  ].join("\n");
+  const snap2 = liveSnapshot(toolScreen, "codex");
+  assert.deepEqual(snap2.item, {
+    kind: "run",
+    title: "Ran npm test",
+    out: ["311 passed"],
+    time: null,
+  });
+});
+
 test("Outbox allows direct send and automatic claim while working when answering an async question", () => {
   const outbox = new Outbox();
   const workingBlocked = { scope: "codex:1", status: "working", turn: 1, answering: false, now: 100 };

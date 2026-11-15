@@ -10,6 +10,7 @@ const CLAUDE = { mark: "⏺ ", prompt: /^❯ \S/, run: /^! \S/, tool: /^⏺ [\w.
 const CODEX = { mark: "• ", prompt: /^› \S/, run: /^\$ \S/, tool: /^• (Running|Ran|Explored|Exploring|Edited|Editing|Read|Reading|Searched|Searching|Called|Calling|Updated Plan|Added|Deleted|Listed|Viewed|Applied|Proposed)\b/ };
 const STATUS = /^• (Working|Waiting|Interrupted|Queued follow-up inputs|Messages to be submitted)\b/;
 const WORKED = /^(?:\s*(?:─+\s*)?Worked for \d|[·✻✽✶✳✢]\s+[A-Za-z]+\s+for\s+\d)/;
+const CHROME_BANNER = /^\s*(?:(?:New(?:\s+activity)?\s*·\s*)?↓\s*(?:Back to bottom|Bottom)(?:\s*·\s*esc)?|⚠\s+(?:weekly|5h|\d+[hd])\s+limit:.*\/status)\s*$/i;
 const CLAUDE_STATUS = /^(?:[·✻✽✶✳✢]\s+\S.*(?:\u2026|\.\.\.|\besc to interrupt\b)|• (Working|Waiting|Interrupted)\b)/;
 // The full-screen view's one-line summaries of tool calls ("Running 1 shell
 // command…", "Read 2 files"): a command running, not text.
@@ -47,7 +48,7 @@ export function liveSnapshot(screen, kind) {
   const body = [];
   for (let i = at + 1; i < end; i++) {
     const l = lines[i];
-    if ((l && !l.startsWith(" ")) || WORKED.test(l)) break;
+    if ((l && !l.startsWith(" ")) || WORKED.test(l) || CHROME_BANNER.test(l)) break;
     body.push(l);
   }
   const depth = (l) => l.length - l.trimStart().length;

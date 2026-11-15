@@ -224,6 +224,7 @@ export class Transcript {
         assistantCount: 0,
         toolCount: 0,
         lastAssistantKey: null,
+        lastAssistantText: null,
       };
       if (this.kind === "codex") this.codexTurn = this.turnState;
     }
@@ -350,6 +351,7 @@ export class Transcript {
         this.turnState.assistantCount = 0;
         this.turnState.toolCount = 0;
         this.turnState.lastAssistantKey = null;
+        this.turnState.lastAssistantText = null;
         this.turnState.stage = "awaiting_text";
       } else if (this.turnState.stage === "assistant_logged") {
         this.turnState.stage = "awaiting_text";
@@ -546,6 +548,7 @@ export class Transcript {
           if (this.turnState && b.text?.trim()) {
             this.turnState.assistantCount++;
             this.turnState.lastAssistantKey = this.last()?.key ?? null;
+            this.turnState.lastAssistantText = b.text.trim();
             this.turnState.stage = "assistant_logged";
           }
         } else if (b?.type === "tool_use") {
@@ -590,6 +593,7 @@ export class Transcript {
           ct.assistantCount = 0;
           ct.toolCount = 0;
           ct.lastAssistantKey = null;
+          ct.lastAssistantText = null;
         }
       }
       return;
@@ -672,6 +676,7 @@ export class Transcript {
         if (this.codexTurn) {
           this.codexTurn.assistantCount++;
           this.codexTurn.lastAssistantKey = this.last()?.key ?? null;
+          this.codexTurn.lastAssistantText = text.trim();
           if (p.phase === "final_answer") {
             this.codexTurn.stage = "completed";
             this.codexTurn.turnStarted = false;

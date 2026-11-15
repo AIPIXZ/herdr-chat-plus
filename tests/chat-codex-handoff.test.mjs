@@ -247,6 +247,7 @@ test("Transcript.codexTurn tracks epochs, commentary/final_answer, tool calls, m
     assistantCount: 0,
     toolCount: 0,
     lastAssistantKey: null,
+    lastAssistantText: null,
   });
 
   t.feed(JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "t1" } }));
@@ -813,6 +814,122 @@ test("single readTailOnce batch with [commentary, function_call] drops visibleSt
   assert.equal(r2.reason, "stale_logged_slot");
   assert.equal(handoff.loggedSlot.assistantCount, 1);
   assert.equal(handoff.loggedSlot.text, "让我先查看一下文件。");
+});
+
+test("[commentary, function_call] logged before follow() saw full commentary never duplicates below running tool", async () => {
+  const { Chat } = makeChatClass();
+  const { cx } = makeCx();
+  const t = new Transcript("codex");
+  t.feed(JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "t1" } }));
+  t.feed(JSON.stringify({
+    type: "response_item",
+    payload: { type: "message", role: "user", content: [{ type: "input_text", text: "看看有没有其他备选的tts" }] },
+  }));
+
+  const fullCommentary = "我查一下适合当前 N1 和 L05B 播放链路的 TTS 备选，重点比较响应速度、稳定性，以及是否容易接进现有 xiaogpt。";
+
+  // Case A: follow() never saw acceptedText at all before [commentary, function_call] landed in readTailOnce
+  const handoffA = new CodexHandoff();
+  t.feed(JSON.stringify({
+    type: "response_item",
+    payload: { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: fullCommentary }] },
+  }));
+  t.feed(JSON.stringify({
+    type: "response_item",
+    payload: { type: "function_call", call_id: "c1", name: "exec_command", arguments: "{}" },
+  }));
+  assert.equal(t.codexTurn.stage, "awaiting_text");
+  assert.equal(t.codexTurn.assistantCount, 1);
+  assert.equal(t.codexTurn.lastAssistantText, fullCommentary);
+
+  // Screen wraps CJK line ("现有 xiaogpt" -> "现 有 xiaogpt") and runs command in status footer
+  const wrappedScreen = [
+    "› 看看有没有其他备选的tts",
+    "",
+    "• 我查一下适合当前 N1 和 L05B 播放链路的 TTS 备选，重点比较响应速度、稳定性，以及是否容易接进现",
+    "  有 xiaogpt。",
+    "",
+    "• Working (1s • esc to interrupt)",
+    "",
+    "›",
+  ].join("\n");
+  const snapWrapped = liveSnapshot(wrappedScreen, "codex");
+  const uA = handoffA.update(snapWrapped, { codexTurn: t.codexTurn, termStatus: "working", hasPriorAssistant: true });
+  assert.equal(uA.streamText, null);
+  assert.equal(uA.reason, "stale_logged_slot");
+  assert.equal(handoffA.visibleStream(t.codexTurn), null);
+
+  // Also test scrolled-off prompt (promptLine === null) matching via lastAssistantText + compactText
+  const scrolledSnap = liveSnapshot([
+    "• 我查一下适合当前 N1 和 L05B 播放链路的 TTS 备选，重点比较响应速度、稳定性，以及是否容易接进现",
+    "  有 xiaogpt。",
+    "",
+    "›",
+  ].join("\n"), "codex");
+  assert.equal(scrolledSnap.promptLine, null);
+  const uAScrolled = handoffA.update(scrolledSnap, { codexTurn: t.codexTurn, termStatus: "working", hasPriorAssistant: true });
+  assert.equal(uAScrolled.streamText, null);
+  assert.equal(uAScrolled.reason, "stale_logged_slot");
+
+  // Case B: follow() only captured a partial prefix before [commentary, function_call] landed
+  const tB = new Transcript("codex");
+  tB.feed(JSON.stringify({ type: "event_msg", payload: { type: "task_started", turn_id: "t2" } }));
+  const handoffB = new CodexHandoff();
+  const partialSnap = liveSnapshot([
+    "› 看看有没有其他备选的tts",
+    "",
+    "• 我查一下适合当前",
+    "",
+    "›",
+  ].join("\n"), "codex");
+  const uB0 = handoffB.update(partialSnap, { codexTurn: tB.codexTurn, termStatus: "working", hasPriorAssistant: false });
+  assert.equal(uB0.streamText, "我查一下适合当前");
+
+  const tail = {
+    truncated: false,
+    read: async () => [
+      JSON.stringify({
+        type: "response_item",
+        payload: { type: "message", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: fullCommentary }] },
+      }),
+      JSON.stringify({
+        type: "response_item",
+        payload: { type: "function_call", call_id: "c2", name: "exec_command", arguments: "{}" },
+      }),
+    ],
+  };
+  const chat = Object.assign(Object.create(Chat.prototype), {
+    gen: 1,
+    t: tB,
+    codexHandoff: handoffB,
+    activeTail: { gen: 1, tail, kind: "codex", ready: true, chain: Promise.resolve() },
+    chatVisible: () => true,
+    cacheShown() {},
+    nameSpace() {},
+    ensureFollow() {},
+    terminal: () => ({ status: "working" }),
+  });
+  await chat.readTailOnce(cx);
+  assert.equal(chat.streamShown(), null);
+
+  const uB1 = handoffB.update(snapWrapped, { codexTurn: tB.codexTurn, termStatus: "working", hasPriorAssistant: true });
+  assert.equal(uB1.streamText, null);
+  assert.equal(uB1.reason, "stale_logged_slot");
+
+  // Post-tool new block streams normally
+  const nextBlockSnap = liveSnapshot([
+    "› 看看有没有其他备选的tts",
+    "",
+    "• 我查一下适合当前 N1 和 L05B 播放链路的 TTS 备选，重点比较响应速度、稳定性，以及是否容易接进现有 xiaogpt。",
+    "",
+    "• 我已经核对完 N1 上的环境。",
+    "",
+    "›",
+  ].join("\n"), "codex");
+  assert.equal(nextBlockSnap.blockOrdinal, 2);
+  const uB2 = handoffB.update(nextBlockSnap, { codexTurn: tB.codexTurn, termStatus: "working", hasPriorAssistant: true });
+  assert.equal(uB2.streamText, "我已经核对完 N1 上的环境。");
+  assert.equal(uB2.reason, "live_stream");
 });
 
 test("ensureFollow('codex') called during exit flushTail starts a fresh follow loop instead of being swallowed", async () => {
@@ -1550,6 +1667,7 @@ test("Claude Code parity: Transcript.turnState + thinking, liveSnapshot(claude) 
     assistantCount: 0,
     toolCount: 0,
     lastAssistantKey: null,
+    lastAssistantText: null,
   });
 
   t.feed(JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "Check bug" }] } }));

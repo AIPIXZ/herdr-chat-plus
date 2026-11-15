@@ -2,6 +2,28 @@
 // its session JSONL log. Ensures zero cross-format text comparison, zero
 // pre-send residue flashing, and atomic slot/turn transitions.
 
+function normText(s) {
+  return typeof s === "string"
+    ? s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[`*_~]/g, "").replace(/\s+/g, " ").trim()
+    : "";
+}
+
+function compactText(s) {
+  return typeof s === "string"
+    ? s.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[`*_~\s]+/g, "").trim()
+    : "";
+}
+
+function sameAssistantText(screenText, loggedText) {
+  const a = normText(screenText);
+  const b = normText(loggedText);
+  if (!a || !b) return false;
+  if (a === b || b.startsWith(a) || b.endsWith(a)) return true;
+  const ca = compactText(screenText);
+  const cb = compactText(loggedText);
+  return ca.length >= 4 && (ca === cb || cb.startsWith(ca) || cb.endsWith(ca));
+}
+
 export class CodexHandoff {
   constructor() {
     this.reset();
@@ -200,7 +222,7 @@ export class CodexHandoff {
         assistantCount: turn.assistantCount,
         text: snapshot?.item?.kind === "text"
           ? snapshot.item.text
-          : (sameSlot ? this.loggedSlot?.text : null) ?? this.acceptedText ?? null,
+          : (sameSlot ? this.loggedSlot?.text : null) ?? this.acceptedText ?? turn.lastAssistantText ?? null,
         blockOrdinal: snapshot?.blockOrdinal ?? (sameSlot ? this.loggedSlot?.blockOrdinal : null) ?? 0,
         promptLine: snapshot?.promptLine ?? (sameSlot ? this.loggedSlot?.promptLine : null) ?? null,
       };
@@ -274,15 +296,35 @@ export class CodexHandoff {
       }
       // Slot Shadow Barrier: after a mid-turn tool call resets stage to awaiting_text,
       // reject the already-logged commentary block if no newer block/post-tool text exists.
-      if (
+      const loggedOrdinal = this.loggedSlot?.epoch === turn?.epoch ? (this.loggedSlot.blockOrdinal ?? 0) : 0;
+      const loggedMatchesSlot =
         this.loggedSlot &&
+        this.loggedSlot.epoch === turn?.epoch &&
+        sameAssistantText(snapshot.item.text, this.loggedSlot.text) &&
+        (snapshot.promptLine === null || !loggedOrdinal || snapshot.blockOrdinal <= loggedOrdinal);
+      const loggedMatchesTurnText =
+        turn?.lastAssistantText &&
+        sameAssistantText(snapshot.item.text, turn.lastAssistantText) &&
+        (!this.loggedSlot ||
+          this.loggedSlot.epoch !== turn.epoch ||
+          this.loggedSlot.assistantCount < (turn.assistantCount ?? 0) ||
+          !loggedOrdinal ||
+          snapshot.promptLine === null ||
+          snapshot.blockOrdinal <= loggedOrdinal);
+      if (
         turn &&
-        this.loggedSlot.epoch === turn.epoch &&
-        snapshot.item.text === this.loggedSlot.text &&
-        snapshot.promptLine !== null &&
-        snapshot.blockOrdinal <= this.loggedSlot.blockOrdinal &&
-        !snapshot.afterToolInBlock
+        (turn.assistantCount ?? 0) > 0 &&
+        !snapshot.afterToolInBlock &&
+        (loggedMatchesSlot || loggedMatchesTurnText)
       ) {
+        const prevSlot = this.loggedSlot?.epoch === turn.epoch ? this.loggedSlot : null;
+        this.loggedSlot = {
+          epoch: turn.epoch,
+          assistantCount: turn.assistantCount ?? 0,
+          text: snapshot.item.text,
+          blockOrdinal: Math.max(prevSlot?.blockOrdinal ?? 0, snapshot.blockOrdinal ?? 0),
+          promptLine: snapshot.promptLine ?? prevSlot?.promptLine ?? null,
+        };
         this.acceptedText = null;
         return { streamText: null, running: this.running, shouldDrainBeforeDrop: false, reason: "stale_logged_slot" };
       }

@@ -40,7 +40,9 @@ def matches(path, home):
                 walk(child)
         walk(tree)
         header = nodes['main']['content']['pane']['header']
-        return (header['content']['mod'] == 'chat-pane' and header['height'] == 44
+        return (tree.get('type') == 'column'
+                and 'workspace' in nodes and 'brand' not in nodes
+                and header['content']['mod'] == 'chat-pane' and header['height'] == 44
                 and nodes['tabs']['content']['mod'] == 'chat-tabs'
                 and nodes['spaces']['content']['mod'] == 'spaces-chat'
                 and nodes['agents']['content']['mod'] == 'agents-chat'

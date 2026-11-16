@@ -53,7 +53,9 @@ export function viewLayout(tree, target, extra = {}) {
   // Chat is a single full-size presentation of the same pane. Use its
   // ordinary frame, never the split-pane focus highlight.
   const frame = findNode(updated, "main")?.content?.pane;
-  page.background = frame?.background ?? "background";
+  page.background = frame?.background && frame.background !== "background"
+    ? frame.background
+    : (template.background ?? "#00000000");
   page.border = { ...(frame?.border ?? { width: 1, color: "border" }) };
   page.radius = frame?.radius ?? 10;
   stack.active = page.id;

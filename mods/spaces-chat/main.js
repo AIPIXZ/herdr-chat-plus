@@ -19,12 +19,12 @@ function find(node, id) {
 // The sidebar's rail goes by its width, not a flag: dragging its edge narrows it too.
 const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
-// To the rail (56px on macOS), or back to the width it had.
+// To the rail (44px), or back to the width it had.
 function toggleSidebar() {
   const width = find(layout(), "sidebar")?.size?.px;
   if (!narrow()) setShared("sidebar.width", width);
   setShared("sidebar.collapsed", !narrow());
-  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : window()?.platform === "macos" ? 56 : 44 });
+  run("layout.resize", { id: "sidebar", px: narrow() ? (shared("sidebar.width") ?? 268) : 44 });
 }
 
 // Where a space is now: its first terminal's live folder, else where it was made.
@@ -477,25 +477,17 @@ export default class Spaces extends View {
     }
     if (changed) setShared("space.colors", kept);
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
-      .child(h_flex().h(31).pl(collapsed ? 0 : 16).pr(collapsed ? 0 : 10).items_center().justify_between().text_size(11.5).text_color(t.dim)
-        .when(collapsed, el => el.justify_center()
-          .child(div().id("sidebar-toggle").size(26).flex_none().flex().items_center().justify_center().rounded(6)
-            .text_color(t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
-            .tooltip("Expand sidebar")
-            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-            .on_click(toggleSidebar)
-            .child(svg("mods/workspace-chrome/sidebar.svg").size(15))))
-        .when(!collapsed, el => el
-          .child("Spaces")
-          .child(h_flex().flex_none().items_center().gap(2)
-            .child(div().id("chat-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
-              .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New chat")
-              .on_click(() => newChat(sp.find(s => s.active)?.machine ?? null))
-              .child(svg("mods/spaces-chat/new-chat.svg").size(14)))
-            .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
-              .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New space")
-              .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))))
-      .child(v_flex().flex_1().min_h(0).px(collapsed ? 4 : 8).pb(14).overflow_y_scrollbar().mode("always")
+      .when(!collapsed, el => el.child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
+        .child("Spaces")
+        .child(h_flex().flex_none().items_center().gap(2)
+          .child(div().id("chat-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
+            .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New chat")
+            .on_click(() => newChat(sp.find(s => s.active)?.machine ?? null))
+            .child(svg("mods/spaces-chat/new-chat.svg").size(14)))
+          .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6)
+            .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("New space")
+            .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))))
+      .child(v_flex().flex_1().min_h(0).px(collapsed ? 4 : 8).pt(collapsed ? 8 : 0).pb(14).overflow_y_scrollbar().mode("always")
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; cx.notify(); })
         .children(this.grouped(t, collapsed)));
   }

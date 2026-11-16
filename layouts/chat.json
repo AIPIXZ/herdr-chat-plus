@@ -4,95 +4,92 @@
     "name": "main",
     "version": "0.1.13"
   },
-  "type": "row",
+  "type": "column",
   "children": [
     {
-      "id": "sidebar",
-      "type": "column",
+      "id": "tabs",
+      "type": "block",
+      "content": {
+        "mod": "chat-tabs"
+      },
+      "size": {
+        "px": 42
+      },
+      "window_drag": true,
+      "children": []
+    },
+    {
+      "id": "workspace",
+      "type": "row",
+      "divider": {
+        "width": 1,
+        "color": "border"
+      },
+      "resizable": false,
       "children": [
         {
-          "id": "brand",
-          "type": "block",
-          "content": {
-            "mod": "workspace-chrome"
-          },
-          "size": {
-            "px": 46
-          },
-          "window_drag": true,
-          "children": []
-        },
-        {
-          "id": "sidebar-lists",
+          "id": "sidebar",
           "type": "column",
           "children": [
             {
-              "id": "spaces",
-              "type": "block",
-              "content": {
-                "mod": "spaces-chat"
-              },
-              "size": {
-                "weight": 1
-              },
-              "min": 90,
-              "children": []
+              "id": "sidebar-lists",
+              "type": "column",
+              "children": [
+                {
+                  "id": "spaces",
+                  "type": "block",
+                  "content": {
+                    "mod": "spaces-chat"
+                  },
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 90,
+                  "children": []
+                },
+                {
+                  "id": "agents",
+                  "type": "block",
+                  "content": {
+                    "mod": "agents-chat"
+                  },
+                  "size": {
+                    "weight": 1
+                  },
+                  "min": 90,
+                  "children": []
+                }
+              ]
             },
             {
-              "id": "agents",
+              "id": "sidebar-footer",
               "type": "block",
               "content": {
-                "mod": "agents-chat"
+                "mod": "workspace-chrome",
+                "props": {
+                  "footer": true
+                }
               },
               "size": {
-                "weight": 1
+                "px": 69
               },
-              "min": 90,
               "children": []
             }
-          ]
+          ],
+          "size": {
+            "px": 268
+          },
+          "min": 44,
+          "max": 480,
+          "background": "#00000000",
+          "resizable": false
         },
         {
-          "id": "sidebar-footer",
-          "type": "block",
-          "content": {
-            "mod": "workspace-chrome",
-            "props": {
-              "footer": true
-            }
-          },
-          "size": {
-            "px": 69
-          },
-          "children": []
-        }
-      ],
-      "size": {
-        "px": 268
-      },
-      "min": 44,
-      "max": 480,
-      "background": "#00000000",
-      "resizable": false
-    },
-    {
-      "id": "work",
-      "type": "column",
-      "children": [
-        {
-          "id": "tabs",
-          "type": "block",
-          "content": {
-            "mod": "chat-tabs"
-          },
-          "size": {
-            "px": 42
-          },
-          "window_drag": true,
-          "children": []
-        },
-        {
-          "id": "work-body",
+          "id": "work",
+          "type": "column",
+          "children": [
+            {
+              "id": "work-body",
           "type": "row",
           "children": [
             {
@@ -214,19 +211,21 @@
           "padding": 8,
           "gap": 8
         },
-        {
-          "id": "status",
-          "type": "block",
-          "content": {
-            "mod": "workspace-status"
-          },
-          "size": {
-            "px": 28
-          },
-          "children": []
+            {
+              "id": "status",
+              "type": "block",
+              "content": {
+                "mod": "workspace-status"
+              },
+              "size": {
+                "px": 28
+              },
+              "children": []
+            }
+          ],
+          "resizable": false
         }
-      ],
-      "resizable": false
+      ]
     }
   ],
   "background": "#00000000",
@@ -234,10 +233,6 @@
     14,
     12
   ],
-  "divider": {
-    "width": 1,
-    "color": "border"
-  },
   "titlebar": "none",
   "traffic_lights": [
     12,
@@ -248,5 +243,5 @@
     "light": "chat-catppuccin-latte",
     "dark": "chat-catppuccin-mocha"
   },
-  "terminal_opacity": 0.92
+  "terminal_opacity": 0
 }

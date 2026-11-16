@@ -1,7 +1,7 @@
 import { openChat as openConversation, findNode, presentationPane, activePage, pageMeta } from "./presentation.js";
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, terminals, run, exec, home, notify, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { spaces, panes, terminals, run, exec, home, notify, openOverlay, theme, window, shared, setShared, layout, settings } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -35,6 +35,17 @@ function chatTabOf(pane) {
   // Closing a chat can leave its terminal label behind. Only a live chat
   // pane counts; an orphaned label must not hide Move to chat.
   return panes().some((p) => p.tab === tab && p.mod === "chat") ? tab : null;
+}
+
+const narrow = (sidebar) => Boolean(sidebar?.hidden) || (sidebar?.size?.px ?? Infinity) < 160;
+
+function toggleSidebar() {
+  const sidebar = find(layout(), "sidebar");
+  const isNarrow = narrow(sidebar);
+  if (!isNarrow && sidebar?.size?.px) setShared("sidebar.width", sidebar.size.px);
+  setShared("sidebar.collapsed", !isNarrow);
+  if (sidebar?.hidden) run("layout.show", { id: "sidebar" });
+  run("layout.resize", { id: "sidebar", px: isNarrow ? (shared("sidebar.width") ?? 268) : 44 });
 }
 
 export default class Tabs extends View {
@@ -178,10 +189,11 @@ export default class Tabs extends View {
         .when(c.active, el => el.child(div().id(`close-${c.id}`).text_color(t.dim).on_mouse_down("left", stop).on_click((_e, cx) => { cx.stop_propagation(); run("tab.close", { id: c.id }); }).child(svg("mods/pane/close.svg").size(12))));
     };
     const root = layout(), sidebar = find(root, "sidebar"), w = window();
-    // Old saved rails and a dragged-narrow sidebar can be smaller than the window buttons.
+    const collapsed = narrow(sidebar);
+    const sidebarWidth = sidebar?.size?.px ?? 268;
     const lightsPadding = w?.platform === "macos" && w.titlebar === "none" && !w.fullscreen && root?.traffic_lights
-      ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
-      : 10;
+      ? Math.max(10, Math.round((root.traffic_lights[0] + 64) / (settings().zoom || 1)))
+      : 14;
     const panel = find(root, "panel"), body = find(root, "panel-body");
     const enabled = shared("workspace.panels") ?? ["files", "changes"];
     this.syncPanel(space, panel, body, enabled);
@@ -202,16 +214,30 @@ export default class Tabs extends View {
       .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
       .on_click(() => { run("tab.select", { id: back }); run("tab.settle", { id: tab.id }); })
       .child(svg("mods/chat-tabs/chat.svg").size(14)).child("Back to chat");
-    return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    return h_flex().size_full().min_w(0).pr(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
-      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
-      .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })))
-      .when(Boolean(back && !chat), el => el.child(backButton))
-      .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
-      .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
-      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/chat-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
-        .child(button("maximize", w.platform === "windows" ? svg(`mods/chat-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
-        .child(button("close-window", w.platform === "windows" ? svg("mods/chat-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
+      .when(!collapsed, el => el.child(
+        h_flex().w(sidebarWidth).h_full().flex_none().pl(lightsPadding).pr(10).gap(4).items_center()
+          .child(h_flex().flex_1().min_w(0).gap(8).items_center()
+            .child(image("frame/welcome/herdr.png").size(20).rounded(5))
+            .child(div().font_semibold().text_size(13.5).text_color(t.foreground).truncate().child("Herdr")))
+          .child(button("search", svg("mods/workspace-chrome/search.svg").size(15), () => run("mod.open", { name: "picker" })).tooltip("Search"))
+          .child(button("sidebar-toggle", svg("mods/workspace-chrome/sidebar.svg").size(15), toggleSidebar).tooltip("Collapse sidebar"))
+      ))
+      .when(collapsed, el => el.child(
+        h_flex().h_full().flex_none().pl(lightsPadding).pr(6).items_center()
+          .child(button("sidebar-toggle", svg("mods/workspace-chrome/sidebar.svg").size(15), toggleSidebar).tooltip("Expand sidebar"))
+      ))
+      .child(div().w(1).h(18).flex_none().bg(t.border))
+      .child(h_flex().flex_1().min_w(0).h_full().pl(8).gap(3).items_center()
+        .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
+        .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })))
+        .when(Boolean(back && !chat), el => el.child(backButton))
+        .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
+        .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
+        .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/chat-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
+          .child(button("maximize", w.platform === "windows" ? svg(`mods/chat-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
+          .child(button("close-window", w.platform === "windows" ? svg("mods/chat-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close")))));
   }
 }

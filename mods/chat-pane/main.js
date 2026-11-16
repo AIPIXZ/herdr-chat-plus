@@ -165,6 +165,8 @@ export default class Pane extends View {
       .gap(8)
       .items_center()
       .bg(t.background)
+      .rounded_t(9)
+      .overflow_hidden()
       .border_b(1)
       .border_color(t.border)
       .text_size(12)

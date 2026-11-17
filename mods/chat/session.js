@@ -1,4 +1,4 @@
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 import { HISTORY_PY } from "./history.js";
 import { machineOf } from "./source.js";
 import { codexTitleIdentity } from "./title.js";
@@ -6,11 +6,11 @@ import { codexTitleIdentity } from "./title.js";
 // Match only structured conversation bodies, never tool output. Shared fork
 // history is deliberately present in every candidate so it cannot break ties.
 export const SESSION_PY = `
-import json, pathlib, sys, re, io, contextlib
+import json, os, pathlib, sys, re, io, contextlib
 screen, cwd, hint, history, *extra = json.loads(sys.argv[1])
 identity = extra[0] if extra else None
 previous = extra[1] if len(extra) > 1 else None
-root = pathlib.Path.home()/".codex"/"sessions"
+root = pathlib.Path(os.environ.get("CODEX_HOME") or pathlib.Path.home()/".codex").expanduser()/"sessions"
 def primary(meta):
     # Codex subagents (including Guardian) can copy their parent's complete
     # conversation. Their content must never identify the terminal's thread.
@@ -21,7 +21,7 @@ def read_meta(path):
         item = json.loads(stream.readline())
     return item.get("payload", {}) if item.get("type") == "session_meta" else {}
 try:
-    previous_valid = not previous or primary(read_meta(previous))
+    previous_valid = not previous or (pathlib.Path(previous).resolve().is_relative_to(root.resolve()) and primary(read_meta(previous)))
 except Exception:
     previous_valid = False
 def emit(**result):

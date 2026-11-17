@@ -1,10 +1,10 @@
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 
 // Resolve inherited history on the machine that owns the terminal. Byte bounds
 // come from Codex metadata and apply before decoding JSONL records.
 export const HISTORY_PY = `
-import json, pathlib, sys
-codex_home = pathlib.Path.home() / ".codex"
+import json, os, pathlib, sys
+codex_home = pathlib.Path(os.environ.get("CODEX_HOME") or pathlib.Path.home() / ".codex").expanduser()
 roots = [p for p in (codex_home / "sessions", codex_home / "archived_sessions") if p.exists()]
 limit = int(sys.argv[2]) if len(sys.argv) > 2 else 4 * 1024 * 1024
 skip_tail = int(sys.argv[3]) if len(sys.argv) > 3 else 0

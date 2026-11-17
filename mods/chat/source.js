@@ -1,5 +1,5 @@
 // Finds the session log an agent terminal is writing, and reads it as it grows.
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 
 // Start this far from the end of a long log; earlier history is skipped.
 const TAIL_BYTES = 4 * 1024 * 1024;
@@ -15,15 +15,18 @@ export function agentKind(term) {
   return what.includes("claude") ? "claude" : what.includes("codex") ? "codex" : null;
 }
 
-// Claude Code writes ~/.claude/sessions/<pid>.json with the live session id.
+// Some Claude versions keep PID discovery in the default registry even when
+// transcripts use CLAUDE_CONFIG_DIR. Only the configured projects root is read.
 const CLAUDE = `
 for p in "$1" $(pgrep -P "$1"); do
-  f="$HOME/.claude/sessions/$p.json"
+ for registry in "$CLAUDE_CONFIG_DIR/sessions" "$HOME/.claude/sessions"; do
+  f="$registry/$p.json"
   [ -f "$f" ] || continue
   id=$(sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$f")
   [ -n "$id" ] || continue
-  log=$(ls "$HOME"/.claude/projects/*/"$id".jsonl 2>/dev/null | head -1)
+  log=$(ls "$CLAUDE_CONFIG_DIR"/projects/*/"$id".jsonl 2>/dev/null | head -1)
   [ -n "$log" ] && echo "$log" && exit 0
+ done
 done`;
 
 // An open rollout is a candidate, not proof after an in-process fork.
@@ -119,9 +122,9 @@ export class Tail {
 // which thread the running TUI currently owns.
 export async function forkCandidates(file, term) {
   const script = `
-import json,pathlib,sys
+import json,os,pathlib,sys
 cwd=sys.argv[2]
-root=pathlib.Path.home()/".codex"/"sessions"
+root=pathlib.Path(os.environ.get("CODEX_HOME") or pathlib.Path.home()/".codex").expanduser()/"sessions"
 found=[]
 for path in root.rglob("rollout-*.jsonl"):
     try:

@@ -2,7 +2,7 @@
 // `claude -p` in stream-json mode, sent control requests, read for their
 // answers. With a session id it works on a read-only fork of that session,
 // so the agent in the terminal is never touched or interrupted.
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 
 // Sends each request in argv[3] (a JSON array) and prints the answers, plus
 // the newest command list Claude announced: it adds plugins' and MCP servers'
@@ -128,9 +128,9 @@ export async function askSide(folder, session, question, history, on) {
 // Earlier sessions in a folder, newest first: { id, title, at (ms) }.
 const SESSIONS = `
 import json, os, re, sys, glob
-d = os.path.expanduser("~/.claude/projects/" + re.sub(r"[^A-Za-z0-9-]", "-", sys.argv[1]))
+d = os.path.join(os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"), "projects", re.sub(r"[^A-Za-z0-9-]", "-", sys.argv[1]))
 out = []
-for f in sorted(glob.glob(d + "/*.jsonl"), key=os.path.getmtime, reverse=True)[:60]:
+for f in sorted(glob.glob(glob.escape(d) + "/*.jsonl"), key=os.path.getmtime, reverse=True)[:60]:
     title, first = None, None
     try:
         with open(f, errors="replace") as fh:

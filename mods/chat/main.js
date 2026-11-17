@@ -10,6 +10,7 @@ import {
   layout, keys, window as appWindow,
 } from "herdr";
 import * as fs from "fs/promises";
+import { agentPaths, agentLaunch } from "./paths.js";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript } from "./parse.js";
@@ -1316,13 +1317,13 @@ export default class Chat extends View {
     const kb = (n) => (n > 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} bytes`);
     cx.spawn(async (cx) => {
       try {
-        const H = on ? ((await exec("sh", ["-c", 'printf "%s" "$HOME"'], { on }).catch(() => null))?.stdout || home()) : home();
+        const { home: H, claudeConfigDir: claudeHome, codexHome } = await agentPaths(on);
         const ancestors = (f) => { const out = []; let d = f; while (d && d !== "/" && d.startsWith(H) && d !== H) { out.push(d); d = d.replace(/\/[^/]+$/, ""); } return out.reverse(); };
         if (what === "memory") {
           const files = kind === "codex"
-            ? [[`${H}/.codex/AGENTS.md`, "Global"], ...ancestors(folder).flatMap((d) => [[`${d}/AGENTS.md`, d === folder ? "This project" : "Parent folder"], [`${d}/AGENTS.override.md`, "Override"]])]
-            : [[`${H}/.claude/CLAUDE.md`, "Your memory"], ...ancestors(folder).flatMap((d) => [[`${d}/CLAUDE.md`, d === folder ? "This project" : "Parent folder"], [`${d}/.claude/CLAUDE.md`, "This project"], [`${d}/CLAUDE.local.md`, "Local (not shared)"]]),
-              [`${H}/.claude/projects/${folder.replace(/[^A-Za-z0-9-]/g, "-")}/memory/MEMORY.md`, "Auto memory"]];
+            ? [[`${codexHome}/AGENTS.md`, "Global"], ...ancestors(folder).flatMap((d) => [[`${d}/AGENTS.md`, d === folder ? "This project" : "Parent folder"], [`${d}/AGENTS.override.md`, "Override"]])]
+            : [[`${claudeHome}/CLAUDE.md`, "Your memory"], ...ancestors(folder).flatMap((d) => [[`${d}/CLAUDE.md`, d === folder ? "This project" : "Parent folder"], [`${d}/.claude/CLAUDE.md`, "This project"], [`${d}/CLAUDE.local.md`, "Local (not shared)"]]),
+              [`${claudeHome}/projects/${folder.replace(/[^A-Za-z0-9-]/g, "-")}/memory/MEMORY.md`, "Auto memory"]];
           const have = await sizes(files.map(([f]) => f));
           e.sections = [{ rows: files.filter(([f]) => have[f]).map(([f, label]) => ({ label, detail: f.replace(H, "~"), status: kb(Number(have[f])), actions: [["Open", edit(f, label)]] })) }];
           if (!e.sections[0].rows.length) e.note = "No memory files yet.";
@@ -1336,7 +1337,7 @@ export default class Chat extends View {
           e.sections = [{ rows: hooks.map((h) => ({ label: [h.event ?? h.eventName ?? h.hookEventName, h.matcher].filter(Boolean).join(" · ") || "Hook",
             detail: h.command ?? h.hook?.command ?? h.prompt ?? JSON.stringify(h.hooks ?? h), status: h.source ?? h.scope ?? "" })) }];
           if (!hooks.length) e.note = "No hooks set up.";
-          e.buttons.push(kind === "codex" ? ["Edit config.toml", edit(`${H}/.codex/config.toml`, "Codex settings")] : ["Edit your settings", edit(`${H}/.claude/settings.json`, "Claude Code settings")]);
+          e.buttons.push(kind === "codex" ? ["Edit config.toml", edit(`${codexHome}/config.toml`, "Codex settings")] : ["Edit your settings", edit(`${claudeHome}/settings.json`, "Claude Code settings")]);
           if (kind !== "codex") e.buttons.push(["Edit project settings", edit(`${folder}/.claude/settings.json`, "Project settings")]);
         } else if (what === "mcp") {
           if (kind === "codex") {
@@ -1369,7 +1370,7 @@ export default class Chat extends View {
             e.buttons.push(["Browse plugins", say("/plugins")]);
           } else {
             const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
-            const raw = await exec("sh", ["-c", 'cat "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null'], { on });
+            const raw = await exec("sh", ["-c", 'cat "$1" 2>/dev/null', "sh", `${claudeHome}/plugins/installed_plugins.json`], { on });
             let installed = {};
             try { installed = JSON.parse(raw.stdout).plugins ?? {}; } catch {}
             const enabled = st?.effective?.enabledPlugins ?? {};
@@ -1383,12 +1384,12 @@ export default class Chat extends View {
           if (kind === "codex") {
             const c = (await codexCalls(folder, [["config/read", {}]], on))[0]?.config ?? {};
             e.sections = [{ rows: Object.entries(c).filter(([, v]) => v != null && !(typeof v === "object" && !Object.keys(v).length)).map(([k, v]) => ({ label: k, detail: show(v) })) }];
-            e.buttons.push(["Edit config.toml", edit(`${H}/.codex/config.toml`, "Codex settings")], ["Open in terminal", say("/settings")]);
+            e.buttons.push(["Edit config.toml", edit(`${codexHome}/config.toml`, "Codex settings")], ["Open in terminal", say("/settings")]);
           } else {
             const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
             e.sections = [{ rows: Object.entries(st?.effective ?? {}).map(([k, v]) => ({ label: k, detail: show(v) })) },
               ...(st?.sources ?? []).length ? [{ title: "From", rows: st.sources.map((x) => ({ label: x.source.replace(/Settings$/, ""), detail: Object.keys(x.settings ?? {}).join(", ") })) }] : []];
-            e.buttons.push(["Edit your settings", edit(`${H}/.claude/settings.json`, "Claude Code settings")],
+            e.buttons.push(["Edit your settings", edit(`${claudeHome}/settings.json`, "Claude Code settings")],
               ["Edit project settings", edit(`${folder}/.claude/settings.json`, "Project settings")], ["Open in terminal", say("/config")]);
           }
         }
@@ -2583,7 +2584,8 @@ export default class Chat extends View {
         const recent = (shared("chat.recent") ?? []).filter((x) => !(x.folder === folder && x.machine === machine));
         setShared("chat.recent", [{ folder, machine }, ...recent].slice(0, 6));
         setShared("chat.kind", kind);
-        const spec = { folder, machine: machine ?? "", argv: launchArgv(kind, model, effort), ...(task ? { task } : {}) };
+        const argv = await agentLaunch(launchArgv(kind, model, effort), kind, machine);
+        const spec = { folder, machine: machine ?? "", argv, ...(task ? { task } : {}) };
         const extra = { started: true, model, effort };
         if (!presentationLayoutReady(layout())) throw new Error("Select the updated Chat layout first");
         const r = await exec("python3", ["-c", NEW_SPACE, JSON.stringify(spec), JSON.stringify(layout()), JSON.stringify(extra)]);

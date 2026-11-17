@@ -48,6 +48,48 @@ Read `~/.config/herdr-app/AGENTS.md` before installing. `--install` refuses exis
 
 The seven mods and the runtime layout still use their established names: `chat`, `chat-file`, `chat-preview`, `chat-pane`, `chat-tabs`, `spaces-chat`, and `agents-chat`. This is intentional for existing customized installations. **The package shares the `chat` namespace with the original layout; they cannot be installed side by side under those names.** No session migration or core-document reset is part of the installer. Another Mac must separately configure its connection to the terminal's machine.
 
+## Agent directories
+
+Chat uses `CLAUDE_CONFIG_DIR` and `CODEX_HOME` from the environment of Herdr's
+command runner on the machine running the agent, falling back to `~/.claude`
+and `~/.codex`. A shell-only export may not be visible to Herdr or a remote core.
+To override the directories explicitly, create `data/chat-paths.json` in your
+Herdr app home (normally `~/.config/herdr-app/data/chat-paths.json`):
+
+```json
+{
+  "local": {
+    "claudeConfigDir": "~/agent-profiles/claude-work",
+    "codexHome": "~/agent-profiles/codex-work"
+  },
+  "machines": {
+    "my-server": {
+      "claudeConfigDir": "/home/me/agent-profiles/claude-work",
+      "codexHome": "~/agent-profiles/codex-work"
+    }
+  }
+}
+```
+
+Use the machine alias from the terminal address (for example, `my-server` in
+`my-server/t8`) as the key under `machines`. Either field and either section
+can be omitted. Each field resolves in this order: explicit configuration for
+that machine, its command-runner environment, then its default directory.
+Local overrides do not apply to remote machines. Paths must be absolute or
+start with `~/`; `~` expands on the target machine. Other shell substitutions
+such as `$HOME` are not expanded.
+
+Restart Herdr after changing the file. The selected roots apply to transcript
+discovery, history, model settings, memory, plugins, custom Codex prompts and
+agent helper processes. New Chat also passes the selected root to the agent.
+Project-local settings remain in the project. Invalid configuration reports an
+error instead of silently selecting another root.
+
+This selects one directory per agent per machine; it does not move existing
+sessions or change the environment of already running terminals. Match the
+configuration to the directory those terminals use. Install/update preserves
+this file in `data/`.
+
 ## Development
 
 Node.js 22+ and Python 3.9+ are needed for local checks. There are no npm dependencies.

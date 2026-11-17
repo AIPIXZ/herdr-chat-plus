@@ -234,7 +234,7 @@ test("models.js preserves custom Claude model, parses only top-level Codex TOML 
       runInNewContext(`${modelsSrc}\n({ catalog, switchModel })`, { exec: execFn, hc: hcFn, CODEX_TITLE_CONFIG: "" });
 
     const m1 = runModels(async (_cmd, args) => {
-      const target = args[3] ?? "";
+      const target = args[4] ?? "";
       if (target.includes("models_cache.json")) {
         return { code: 0, stdout: JSON.stringify({ models: [{ slug: "gpt-5.4", display_name: "GPT-5.4", visibility: "list" }] }) };
       }
@@ -257,13 +257,13 @@ test("models.js preserves custom Claude model, parses only top-level Codex TOML 
     const fakeHome = join(dir, "home-missing");
     const mMissing = runModels(
       async (cmd, args) => {
-        const out = execFileSync(cmd, args, { env: { ...process.env, HOME: fakeHome }, encoding: "utf8" });
+        const out = execFileSync(cmd, args, { env: { ...process.env, CLAUDE_CONFIG_DIR: join(fakeHome, ".claude") }, encoding: "utf8" });
         return { code: 0, stdout: out, stderr: "" };
       },
       async () => {
         // Simulate Claude creating ~/.claude/settings.json during /model
-        execFileSync("sh", ["-c", 'mkdir -p "$HOME/.claude" && echo \'{"model":"opus"}\' > "$HOME/.claude/settings.json"'], {
-          env: { ...process.env, HOME: fakeHome },
+        execFileSync("sh", ["-c", 'mkdir -p "$CLAUDE_CONFIG_DIR" && echo \'{"model":"opus"}\' > "$CLAUDE_CONFIG_DIR/settings.json"'], {
+          env: { ...process.env, CLAUDE_CONFIG_DIR: join(fakeHome, ".claude") },
         });
         return { code: 0 };
       },

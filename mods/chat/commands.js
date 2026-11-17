@@ -1,5 +1,5 @@
 // The / menu: which commands an agent takes, as its own menu lists them.
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 import { claudeInfo, codexCalls } from "./sdk.js";
 
 // Claude Code's built-in commands, as its app describes them (2.1.311). The
@@ -255,7 +255,7 @@ const CODEX_HOST = {
 
 async function codexCommands(folder, on) {
   const [r, [models]] = await Promise.all([
-    sh('for f in "$HOME"/.codex/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on),
+    sh('for f in "$CODEX_HOME"/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on),
     codexCalls(folder, [["model/list", {}]], on).catch(() => [null]),
   ]);
   const list = CODEX.map((c) => {

@@ -13,7 +13,7 @@ function setup(){
  const files=ids.map(id=>join(dir,`rollout-date-${id}.jsonl`));
  const line=text=>JSON.stringify({type:'message',text})+'\n';
  const write=(n,base,text)=>{writeFileSync(files[n],JSON.stringify({type:'session_meta',payload:{id:ids[n],...(base?{history_base:base}:{})}})+'\n'+text);return Buffer.byteLength(readFileSync(files[n]));};
- const read=(n,bytes)=>JSON.parse(execFileSync('python3',['-c',script,files[n],...(bytes ? [String(bytes)] : [])],{env:{...process.env,HOME:home},encoding:'utf8',maxBuffer:16*1024*1024,stdio:['pipe','pipe','pipe']}));
+ const read=(n,bytes)=>JSON.parse(execFileSync('python3',['-c',script,files[n],...(bytes ? [String(bytes)] : [])],{env:{...process.env,HOME:home,CODEX_HOME:""},encoding:'utf8',maxBuffer:16*1024*1024,stdio:['pipe','pipe','pipe']}));
  return {home,ids,files,line,write,read,close:()=>rmSync(home,{recursive:true,force:true})};
 }
 test('nested forks inherit only each parent prefix and read child complete lines once',()=>{
@@ -77,7 +77,7 @@ test('windowed skip_tail pagination stitches multi-window inherited history clea
   const end=s.write(0,null,Array.from({length:30},(_,i)=>s.line(`msg-${i}-`+'y'.repeat(80))).join(''));
   s.write(1,{thread_id:s.ids[0],end_byte_offset:end},s.line('child-end'));
   const execMock=async(_cmd,args)=>{
-   const out=execFileSync('python3',args,{env:{...process.env,HOME:s.home},encoding:'utf8',maxBuffer:16*1024*1024});
+   const out=execFileSync('python3',args,{env:{...process.env,HOME:s.home,CODEX_HOME:""},encoding:'utf8',maxBuffer:16*1024*1024});
    return {code:0,stdout:out,stderr:''};
   };
   const smallChunkSource=source.replace(/^import .*;\n/gm,'').replace(/export /g,'').replace('const HISTORY_CHUNK = 3 * 1024 * 1024;','const HISTORY_CHUNK = 900;');
@@ -119,7 +119,7 @@ test('inheritedHistory advances past oversized single JSONL lines (> window size
   const newer=Array.from({length:3},(_,i)=>s.line(`newer-${i}`));
   const end=s.write(0,null,older.join('')+bigCompacted+newer.join(''));
   const execMock=async(_cmd,args)=>{
-   const out=execFileSync('python3',args,{env:{...process.env,HOME:s.home},encoding:'utf8',maxBuffer:16*1024*1024});
+   const out=execFileSync('python3',args,{env:{...process.env,HOME:s.home,CODEX_HOME:""},encoding:'utf8',maxBuffer:16*1024*1024});
    return {code:0,stdout:out,stderr:''};
   };
   const smallChunkSource=source.replace(/^import .*;\n/gm,'').replace(/export /g,'').replace('const HISTORY_WINDOW = 3 * 1024 * 1024;','const HISTORY_WINDOW = 1024;');

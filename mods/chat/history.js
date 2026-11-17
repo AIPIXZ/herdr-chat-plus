@@ -1,10 +1,18 @@
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 
 // Resolve inherited history on the machine that owns the terminal. Byte bounds
 // come from Codex metadata and apply before decoding JSONL records.
 export const HISTORY_PY = `
-import json, pathlib, sys
-codex_home = pathlib.Path.home() / ".codex"
+import json, os, pathlib, sys
+codex_home = pathlib.Path(os.environ.get("CODEX_HOME") or pathlib.Path.home() / ".codex").expanduser()
+# Inherited parents must stay in the leaf transcript's account, even while
+# the matcher considers candidates from several accounts in one process.
+leaf_path = pathlib.Path(sys.argv[1]).resolve()
+homes = json.loads(os.environ.get("HERDR_CHAT_CODEX_HOMES") or "[]")
+accounts = list(dict.fromkeys(pathlib.Path(p).expanduser().resolve() for p in [str(codex_home), *homes]))
+owner = next((p for p in sorted(accounts, key=lambda p: len(str(p)), reverse=True)
+              if any(leaf_path.is_relative_to(p / d) for d in ("sessions", "archived_sessions"))), None)
+if owner is not None: codex_home = owner
 roots = [p for p in (codex_home / "sessions", codex_home / "archived_sessions") if p.exists()]
 limit = int(sys.argv[2]) if len(sys.argv) > 2 else 4 * 1024 * 1024
 skip_tail = int(sys.argv[3]) if len(sys.argv) > 3 else 0
@@ -139,7 +147,7 @@ export async function inheritedHistory(file, on, bytes = 4 * 1024 * 1024) {
   while (remaining > 0) {
     const step = Math.min(remaining, HISTORY_WINDOW);
     const args = skip > 0 ? ["-c", HISTORY_PY, file, String(step), String(skip)] : ["-c", HISTORY_PY, file, String(step)];
-    const result = await exec("python3", args, { on });
+    const result = await exec("python3", args, { on, sessionFile: file });
     if (result.code !== 0) throw new Error(result.stderr.trim() || "Could not read inherited conversation");
     const page = JSON.parse(result.stdout);
     if (skip === 0) leafOffset = page.offset;

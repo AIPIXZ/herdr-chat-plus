@@ -1,6 +1,7 @@
 // Models and effort levels for Claude Code and Codex: what can be picked,
 // how to start an agent with them, and how to switch a running one.
-import { exec, hc } from "herdr";
+import { hc } from "herdr";
+import { agentExec as exec } from "./paths.js";
 import { CODEX_TITLE_CONFIG } from "./title.js";
 
 export const CLAUDE_MODELS = [
@@ -11,14 +12,14 @@ export const CLAUDE_MODELS = [
 ];
 export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
-const cat = async (path, on) =>
-  (await exec("sh", ["-c", 'cat "$HOME/$1" 2>/dev/null', "sh", path], { on })).stdout;
+const cat = async (kind, path, on, sessionFile) =>
+  (await exec("sh", ["-c", 'if [ "$1" = claude ]; then root="$CLAUDE_CONFIG_DIR"; else root="$CODEX_HOME"; fi; cat "$root/$2" 2>/dev/null', "sh", kind, path], { on, sessionFile })).stdout;
 
 // { models: [{ id, name, efforts }], model, effort }: the choices and the defaults.
-export async function catalog(kind, on) {
+export async function catalog(kind, on, sessionFile = null) {
   if (kind === "claude") {
     let s = {};
-    try { s = JSON.parse(await cat(".claude/settings.json", on)); } catch {}
+    try { s = JSON.parse(await cat("claude", "settings.json", on, sessionFile)); } catch {}
     const custom = typeof s.model === "string" && s.model.trim() ? s.model.trim() : null;
     const known = CLAUDE_MODELS.find((m) => m.alias === custom || m.id === custom);
     const models = (known || !custom ? CLAUDE_MODELS : [{ id: custom, name: custom }, ...CLAUDE_MODELS]).map((m) => ({ ...m, efforts: CLAUDE_EFFORTS }));
@@ -27,12 +28,12 @@ export async function catalog(kind, on) {
     return { models, model, effort };
   }
   let c = {};
-  try { c = JSON.parse(await cat(".codex/models_cache.json", on)); } catch {}
+  try { c = JSON.parse(await cat("codex", "models_cache.json", on, sessionFile)); } catch {}
   const models = (c.models ?? []).filter((m) => m.visibility === "list").map((m) => ({
     id: m.slug, name: m.display_name ?? m.slug,
     efforts: (m.supported_reasoning_levels ?? []).map((l) => l.effort),
   }));
-  const toml = await cat(".codex/config.toml", on);
+  const toml = await cat("codex", "config.toml", on, sessionFile);
   const top = toml.split(/^\s*\[/m)[0] ?? "";
   return {
     models,
@@ -54,7 +55,7 @@ export function launchArgv(kind, model, effort, task) {
 
 // Codex switches for the session only. Claude's /model and /effort also save
 // themselves as the default for new sessions, so its settings file is put back.
-export async function switchModel(term, kind, model, effort, on, sleep) {
+export async function switchModel(term, kind, model, effort, on, sleep, sessionFile = null) {
   const send = async command => {
     const result = await hc(["send", term, command]);
     if (result.code !== 0) throw new Error(result.stderr?.trim() || "Could not apply model settings");
@@ -65,15 +66,15 @@ export async function switchModel(term, kind, model, effort, on, sleep) {
     return send(`/model ${model}${effort ? ` --reasoning=${effort}` : ""}`);
   }
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const f = '"$HOME/.claude/settings.json"';
-  const bak = `"$HOME/.claude/settings.json.chat-bak-${stamp}"`;
-  const probe = await exec("sh", ["-c", `if [ -f ${f} ]; then cp ${f} ${bak} && echo had; elif [ ! -e ${f} ]; then echo missing; fi`], { on });
+  const f = '"$CLAUDE_CONFIG_DIR/settings.json"';
+  const bak = `"$CLAUDE_CONFIG_DIR/settings.json.chat-bak-${stamp}"`;
+  const probe = await exec("sh", ["-c", `if [ -f ${f} ]; then cp ${f} ${bak} && echo had; elif [ ! -e ${f} ]; then echo missing; fi`], { on, sessionFile });
   const state = (probe?.stdout ?? "").trim();
   try {
     if (model) { await send(`/model ${model}`); await sleep(1200); }
     if (effort) { await send(`/effort ${effort}`); await sleep(1200); }
   } finally {
-    if (state === "had") await exec("sh", ["-c", `[ -f ${bak} ] && mv -f ${bak} ${f}`], { on });
-    else if (state === "missing") await exec("sh", ["-c", `rm -f ${f} ${bak}`], { on });
+    if (state === "had") await exec("sh", ["-c", `[ -f ${bak} ] && mv -f ${bak} ${f}`], { on, sessionFile });
+    else if (state === "missing") await exec("sh", ["-c", `rm -f ${f} ${bak}`], { on, sessionFile });
   }
 }

@@ -1,5 +1,5 @@
 // Finds the session log an agent terminal is writing, and reads it as it grows.
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 
 // Start this far from the end of a long log; earlier history is skipped.
 const TAIL_BYTES = 4 * 1024 * 1024;
@@ -15,16 +15,34 @@ export function agentKind(term) {
   return what.includes("claude") ? "claude" : what.includes("codex") ? "codex" : null;
 }
 
-// Claude Code writes ~/.claude/sessions/<pid>.json with the live session id.
-const CLAUDE = `
-for p in "$1" $(pgrep -P "$1"); do
-  f="$HOME/.claude/sessions/$p.json"
-  [ -f "$f" ] || continue
-  id=$(sed -n 's/.*"sessionId"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$f")
-  [ -n "$id" ] || continue
-  log=$(ls "$HOME"/.claude/projects/*/"$id".jsonl 2>/dev/null | head -1)
-  [ -n "$log" ] && echo "$log" && exit 0
-done`;
+// Some Claude versions keep PID discovery in the default registry even when
+// transcripts use CLAUDE_CONFIG_DIR. Only the configured projects root is read.
+export const CLAUDE_PY = `
+import json, os, pathlib, subprocess, sys
+roots = [pathlib.Path(p) for p in json.loads(os.environ.get("HERDR_CHAT_CLAUDE_DIRS") or "[]")]
+if not roots: roots = [pathlib.Path(os.environ["CLAUDE_CONFIG_DIR"])]
+children = subprocess.run(["pgrep", "-P", sys.argv[1]], capture_output=True, text=True).stdout.split()
+for pid in [sys.argv[1], *children]:
+    hits = set()
+    # Account-local registries identify ownership even if another profile has
+    # a copy of the same session. The default registry is a fallback only.
+    for root in roots:
+        try:
+            ident = json.loads((root / "sessions" / (pid + ".json")).read_text())["sessionId"]
+            if not isinstance(ident, str) or not ident or any(c not in "0123456789abcdef-" for c in ident): continue
+            hits.update(str(p) for p in (root / "projects").glob("*/" + ident + ".jsonl"))
+        except (OSError, ValueError, KeyError): pass
+    if not hits:
+        try:
+            ident = json.loads((pathlib.Path.home() / ".claude/sessions" / (pid + ".json")).read_text())["sessionId"]
+            if isinstance(ident, str) and ident and all(c in "0123456789abcdef-" for c in ident):
+                for root in roots:
+                    hits.update(str(p) for p in (root / "projects").glob("*/" + ident + ".jsonl"))
+        except (OSError, ValueError, KeyError): pass
+    if hits:
+        if len(hits) == 1: print(next(iter(hits)))
+        break
+`;
 
 // An open rollout is a candidate, not proof after an in-process fork.
 const CODEX = `
@@ -38,7 +56,9 @@ export async function locate(term, kind) {
   const pid = term?.foreground?.pid;
   if (!pid) return null;
   const on = machineOf(term.address);
-  const r = await sh(kind === "codex" ? CODEX : CLAUDE, [String(pid), term.foreground.cwd ?? ""], on);
+  const r = kind === "codex"
+    ? await sh(CODEX, [String(pid), term.foreground.cwd ?? ""], on)
+    : await exec("python3", ["-c", CLAUDE_PY, String(pid)], { on });
   return r.stdout.trim().split("\n")[0] || null;
 }
 
@@ -119,9 +139,9 @@ export class Tail {
 // which thread the running TUI currently owns.
 export async function forkCandidates(file, term) {
   const script = `
-import json,pathlib,sys
+import json,os,pathlib,sys
 cwd=sys.argv[2]
-root=pathlib.Path.home()/".codex"/"sessions"
+root=pathlib.Path(os.environ.get("CODEX_HOME") or pathlib.Path.home()/".codex").expanduser()/"sessions"
 found=[]
 for path in root.rglob("rollout-*.jsonl"):
     try:
@@ -131,7 +151,7 @@ for path in root.rglob("rollout-*.jsonl"):
     except Exception: pass
 print(json.dumps(sorted(found,key=lambda x:x["timestamp"],reverse=True)))
 `;
-  const result = await exec("python3", ["-c", script, file ?? "", term.foreground?.cwd ?? ""], { on: machineOf(term.address) });
+  const result = await exec("python3", ["-c", script, file ?? "", term.foreground?.cwd ?? ""], { on: machineOf(term.address), sessionFile: file });
   if (result.code !== 0) return [];
   try { return JSON.parse(result.stdout); } catch { return []; }
 }

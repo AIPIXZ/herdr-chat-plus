@@ -16,7 +16,7 @@ function fixture(fn){
  const write=(i,text,base)=>writeFileSync(files[i],JSON.stringify({type:'session_meta',payload:{id:ids[i],cwd:'/repo',...(base?{history_base:base}:{})}})+'\n'+text);
  write(0,message(common));const bound=Buffer.byteLength(readFileSync(files[0]));
  write(1,message('First distinctive child message with enough characters')+message('Second distinctive child reply with enough characters','agent_message'),{thread_id:ids[0],end_byte_offset:bound});
- const resolve=(screen,identity=null,previous=null)=>JSON.parse(execFileSync('python3',['-c',script,JSON.stringify([screen,'/repo',files[0],history,identity,previous])],{env:{...process.env,HOME:home},encoding:'utf8'}));
+ const resolve=(screen,identity=null,previous=null)=>JSON.parse(execFileSync('python3',['-c',script,JSON.stringify([screen,'/repo',files[0],history,identity,previous])],{env:{...process.env,HOME:home,CODEX_HOME:""},encoding:'utf8'}));
  try{fn({resolve,files,ids,common});}finally{rmSync(home,{recursive:true,force:true});}
 }
 test('shared inherited fork history remains ambiguous despite open parent hint',()=>fixture(({resolve,common})=>assert.equal(resolve(common).file,null)));

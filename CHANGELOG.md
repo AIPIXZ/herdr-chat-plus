@@ -5,7 +5,10 @@
 Based on the customized Herdr Chat branch through `b206ed5`.
 
 - Chat/TUI presentation of the same terminal, with per-terminal mode memory and remote owner resolution.
+- Split tabs keep their pane geometry when opening Chat; each pane toggles independently and focus/search target only the clicked conversation.
 - Conservative Codex session identification, fork history, and incremental loading of older transcript data.
+- Configurable Claude Code and Codex directories per local/remote machine, with `CLAUDE_CONFIG_DIR` / `CODEX_HOME` fallbacks for discovery, history, settings and new chats.
+- Multiple Claude and Codex account directories, with bound-account helpers and caches and account-local Codex fork history.
 - Claude/Codex live handoff and visible prompts/errors, attachments, image preview, compact activity and command output.
 - Local follow-up queue, Instant, recoverable failed direct sends, and explicit retry after resuming the same session.
 - Colored recorded diffs, turn-wide diff sidebar with pushing file headers, hover diff preview, and read-only file/Markdown views.

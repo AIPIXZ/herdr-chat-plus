@@ -1,5 +1,5 @@
 // The / menu: which commands an agent takes, as its own menu lists them.
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 import { claudeInfo, codexCalls } from "./sdk.js";
 
 // Claude Code's built-in commands, as its app describes them (2.1.311). The
@@ -177,7 +177,7 @@ function front(text) {
   return { desc: field("description"), hint: field("argument-hint") };
 }
 
-const sh = (script, args, on) => exec("sh", ["-c", script, "sh", ...args], { on });
+const sh = (script, args, on, sessionFile) => exec("sh", ["-c", script, "sh", ...args], { on, sessionFile });
 
 // What each command does in the chat, as in the Claude app: some are answered
 // here (side chat, pickers, cards); the rest go to the agent as typed.
@@ -213,8 +213,8 @@ function kindOf(c) {
   return "harness";
 }
 
-async function claudeCommands(folder, on) {
-  const info = await claudeInfo(folder, on);
+async function claudeCommands(folder, on, sessionFile) {
+  const info = await claudeInfo(folder, on, sessionFile);
   const list = [];
   const have = new Set();
   for (const c of info?.commands ?? []) {
@@ -253,10 +253,10 @@ const CODEX_HOST = {
   diff: { action: "diff" }, copy: { action: "copy" },
 };
 
-async function codexCommands(folder, on) {
+async function codexCommands(folder, on, sessionFile) {
   const [r, [models]] = await Promise.all([
-    sh('for f in "$HOME"/.codex/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on),
-    codexCalls(folder, [["model/list", {}]], on).catch(() => [null]),
+    sh('for f in "$CODEX_HOME"/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on, sessionFile),
+    codexCalls(folder, [["model/list", {}]], on, sessionFile).catch(() => [null]),
   ]);
   const list = CODEX.map((c) => {
     const host = CODEX_HOST[c[0]];
@@ -273,9 +273,9 @@ async function codexCommands(folder, on) {
   return { list: list.sort((x, y) => x.name.localeCompare(y.name)), models: catalog };
 }
 
-export async function loadCommands(kind, folder, on) {
-  if (kind === "claude") return claudeCommands(folder, on);
-  if (kind === "codex") return codexCommands(folder, on);
+export async function loadCommands(kind, folder, on, sessionFile = null) {
+  if (kind === "claude") return claudeCommands(folder, on, sessionFile);
+  if (kind === "codex") return codexCommands(folder, on, sessionFile);
   return { list: [], models: [] };
 }
 

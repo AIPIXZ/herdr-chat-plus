@@ -1,6 +1,6 @@
 # Herdr Chat Plus
 
-A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex terminals. **Chat / TUI** switches how you see the same running terminal. Chat does not create another shared terminal pane; TUI keeps Herdr's normal splits.
+A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex terminals. **Chat / TUI** switches how you see the same running terminal. In a split tab, each pane switches independently while its siblings remain visible. Chat does not create another shared terminal pane.
 
 Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original MIT license and author attribution are retained. Herdr Chat Plus is an independent layout project, not an official Herdr distribution.
 
@@ -47,6 +47,82 @@ Use only this Herdr Chat Plus checkout for updates. The old `herdr-chat/customiz
 Read `~/.config/herdr-app/AGENTS.md` before installing. `--install` refuses existing Chat names. `--update` backs up replaced files, preserves a conflicting New Chat shortcut, and selects the Chat layout. `--home PATH` or `HERDR_APP_HOME` chooses another app home. Without a mode, the installer only prints a dry run.
 
 The seven mods and the runtime layout still use their established names: `chat`, `chat-file`, `chat-preview`, `chat-pane`, `chat-tabs`, `spaces-chat`, and `agents-chat`. This is intentional for existing customized installations. **The package shares the `chat` namespace with the original layout; they cannot be installed side by side under those names.** No session migration or core-document reset is part of the installer. Another Mac must separately configure its connection to the terminal's machine.
+
+## Agent directories
+
+Chat uses `CLAUDE_CONFIG_DIR` and `CODEX_HOME` from the environment of Herdr's
+command runner on the machine running the agent, falling back to `~/.claude`
+and `~/.codex`. A shell-only export may not be visible to Herdr or a remote core.
+To override the directories explicitly, create `data/chat-paths.json` in your
+Herdr app home (normally `~/.config/herdr-app/data/chat-paths.json`):
+
+```json
+{
+  "local": {
+    "claudeConfigDir": "~/agent-profiles/claude-work",
+    "codexHome": "~/agent-profiles/codex-work"
+  },
+  "machines": {
+    "my-server": {
+      "claudeConfigDir": "/home/me/agent-profiles/claude-work",
+      "codexHome": "~/agent-profiles/codex-work"
+    }
+  }
+}
+```
+
+Use the machine alias from the terminal address (for example, `my-server` in
+`my-server/t8`) as the key under `machines`. Either field and either section
+can be omitted. Each field resolves in this order: explicit configuration for
+that machine, its command-runner environment, then its default directory.
+Local overrides do not apply to remote machines. Paths must be absolute or
+start with `~/`; `~` expands on the target machine. Other shell substitutions
+such as `$HOME` are not expanded.
+
+Restart Herdr after changing the file. The selected roots apply to transcript
+discovery, history, model settings, memory, plugins, custom Codex prompts and
+agent helper processes. New Chat also passes the selected root to the agent.
+Project-local settings remain in the project. Invalid configuration reports an
+error instead of silently selecting another root.
+
+For multiple accounts, add `claudeConfigDirs` and/or `codexHomes` to `local`
+or a machine entry. These are additional discovery roots; they do not override
+the default account used to launch either agent:
+
+```json
+{
+  "local": {
+    "claudeConfigDirs": [
+      "~/agent-profiles/account-one/config",
+      "~/agent-profiles/account-two/config"
+    ],
+    "codexHomes": [
+      "~/agent-profiles/codex-personal",
+      "~/agent-profiles/codex-work"
+    ]
+  }
+}
+```
+
+Each Claude path must be the directory containing `projects/` and `settings.json`,
+which may be a `config/` subdirectory inside an account folder. Chat searches
+the default root and these additional roots using the terminal's PID registry.
+Each Codex path must contain `sessions/` and its account configuration. Codex
+identity matching searches all configured homes while preserving its existing
+title/status/text evidence rules. Inherited and archived fork history stays
+within the leaf transcript's account; a missing parent is never borrowed from
+another account. Repeated paths to the same file are deduplicated.
+
+Ambiguous matches are left unbound. Once bound, settings, history and helper
+queries follow the account owning that transcript. Model, command and usage
+caches are isolated by conversation for both agents. New Chat still uses the
+single `claudeConfigDir` / `codexHome` override, environment or default, not
+the first additional root. These lists support existing account profiles;
+they do not provide a login or account-switching UI.
+
+This does not move sessions or change the environment of already running
+terminals. Match the configuration to the directories those terminals use.
+Install/update preserves this file in `data/`.
 
 ## Development
 

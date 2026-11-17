@@ -2,7 +2,7 @@
 // `claude -p` in stream-json mode, sent control requests, read for their
 // answers. With a session id it works on a read-only fork of that session,
 // so the agent in the terminal is never touched or interrupted.
-import { exec } from "herdr";
+import { agentExec as exec } from "./paths.js";
 
 // Sends each request in argv[3] (a JSON array) and prints the answers, plus
 // the newest command list Claude announced: it adds plugins' and MCP servers'
@@ -98,8 +98,8 @@ stop_proc()
 os._exit(0)
 `;
 
-export async function control(folder, session, requests, { on = null, timeout = 45, settle = 0, delay = 0, withCommands = false } = {}) {
-  const r = await exec("python3", ["-c", PY, folder ?? "", session ?? "", JSON.stringify(requests), String(timeout), String(settle), String(delay)], { on });
+export async function control(folder, session, requests, { on = null, timeout = 45, settle = 0, delay = 0, withCommands = false, sessionFile = null } = {}) {
+  const r = await exec("python3", ["-c", PY, folder ?? "", session ?? "", JSON.stringify(requests), String(timeout), String(settle), String(delay)], { on, sessionFile });
   let res;
   try { res = JSON.parse(r.stdout.trim().split("\n").pop()); } catch { res = { out: requests.map(() => ({ error: r.stderr.trim() || "no answer" })), commands: null }; }
   return withCommands ? res : res.out;
@@ -107,8 +107,8 @@ export async function control(folder, session, requests, { on = null, timeout = 
 
 // What Claude offers in a folder: its commands (with the ones plugins and MCP
 // servers add) and its models, from the reply to the SDK's initialize.
-export async function claudeInfo(folder, on) {
-  const { out: [init], commands } = await control(folder, null, [{ subtype: "initialize" }], { on, timeout: 20, settle: 2.5, withCommands: true });
+export async function claudeInfo(folder, on, sessionFile = null) {
+  const { out: [init], commands } = await control(folder, null, [{ subtype: "initialize" }], { on, sessionFile, timeout: 20, settle: 2.5, withCommands: true });
   if (!init || init.error) return null;
   return { ...init, commands: commands ?? init.commands ?? [] };
 }
@@ -117,9 +117,9 @@ export async function claudeInfo(folder, on) {
 export const sessionOf = (file) => /([0-9a-f-]{36})\.jsonl$/.exec(file ?? "")?.[1] ?? null;
 
 // A side question about the session, with the earlier ones in this side chat.
-export async function askSide(folder, session, question, history, on) {
+export async function askSide(folder, session, question, history, on, sessionFile = null) {
   const req = { subtype: "side_question", question, ...(history.length ? { history } : {}) };
-  const [a] = await control(folder, session, [req], { on, timeout: 60 });
+  const [a] = await control(folder, session, [req], { on, sessionFile, timeout: 60 });
   if (!a || a.error) return { error: a?.error ?? "No answer" };
   if (a.response == null || a.synthetic) return { error: "No answer available for this side question. Try again." };
   return { text: a.response };
@@ -128,9 +128,9 @@ export async function askSide(folder, session, question, history, on) {
 // Earlier sessions in a folder, newest first: { id, title, at (ms) }.
 const SESSIONS = `
 import json, os, re, sys, glob
-d = os.path.expanduser("~/.claude/projects/" + re.sub(r"[^A-Za-z0-9-]", "-", sys.argv[1]))
+d = os.path.join(os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude"), "projects", re.sub(r"[^A-Za-z0-9-]", "-", sys.argv[1]))
 out = []
-for f in sorted(glob.glob(d + "/*.jsonl"), key=os.path.getmtime, reverse=True)[:60]:
+for f in sorted(glob.glob(glob.escape(d) + "/*.jsonl"), key=os.path.getmtime, reverse=True)[:60]:
     title, first = None, None
     try:
         with open(f, errors="replace") as fh:
@@ -146,8 +146,8 @@ for f in sorted(glob.glob(d + "/*.jsonl"), key=os.path.getmtime, reverse=True)[:
 print(json.dumps(out))
 `;
 
-export async function listSessions(folder, on) {
-  const r = await exec("python3", ["-c", SESSIONS, folder], { on });
+export async function listSessions(folder, on, sessionFile = null) {
+  const r = await exec("python3", ["-c", SESSIONS, folder], { on, sessionFile });
   try { return JSON.parse(r.stdout); } catch { return []; }
 }
 
@@ -216,14 +216,14 @@ for line in p.stdout:
 bail({"text": answer} if answer else {"error": err or "No answer"})
 `;
 
-const codexRun = async (folder, mode, arg, on) => {
-  const r = await exec("python3", ["-c", CODEX_PY, folder ?? "", mode, JSON.stringify(arg)], { on });
+const codexRun = async (folder, mode, arg, on, sessionFile = null) => {
+  const r = await exec("python3", ["-c", CODEX_PY, folder ?? "", mode, JSON.stringify(arg)], { on, sessionFile });
   try { return JSON.parse(r.stdout.trim().split("\n").pop()); } catch { return { error: r.stderr.trim() || "No answer" }; }
 };
 
 // Several app-server calls in one go: [[method, params], ...] → results.
-export async function codexCalls(folder, calls, on) {
-  const r = await codexRun(folder, "calls", { calls, timeout: 30 }, on);
+export async function codexCalls(folder, calls, on, sessionFile = null) {
+  const r = await codexRun(folder, "calls", { calls, timeout: 30 }, on, sessionFile);
   return r.out ?? calls.map(() => null);
 }
 
@@ -252,5 +252,5 @@ export async function askCodexSide(folder, rollout, question, history, on) {
   return codexRun(folder, "side", {
     fork: { threadId, path: rollout, cwd: folder, threadSource: "user", excludeTurns: true, ephemeral: true, developerInstructions: CODEX_SIDE },
     text, timeout: 120,
-  }, on);
+  }, on, rollout);
 }

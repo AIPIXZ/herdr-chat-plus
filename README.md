@@ -85,9 +85,9 @@ agent helper processes. New Chat also passes the selected root to the agent.
 Project-local settings remain in the project. Invalid configuration reports an
 error instead of silently selecting another root.
 
-For multiple Claude accounts, add `claudeConfigDirs` to `local` or a machine
-entry. These are additional discovery roots; they do not override the default
-account or Codex directory:
+For multiple accounts, add `claudeConfigDirs` and/or `codexHomes` to `local`
+or a machine entry. These are additional discovery roots; they do not override
+the default account used to launch either agent:
 
 ```json
 {
@@ -95,18 +95,30 @@ account or Codex directory:
     "claudeConfigDirs": [
       "~/agent-profiles/account-one/config",
       "~/agent-profiles/account-two/config"
+    ],
+    "codexHomes": [
+      "~/agent-profiles/codex-personal",
+      "~/agent-profiles/codex-work"
     ]
   }
 }
 ```
 
-Each path must be the directory containing `projects/` and `settings.json`,
+Each Claude path must be the directory containing `projects/` and `settings.json`,
 which may be a `config/` subdirectory inside an account folder. Chat searches
 the default root and these additional roots using the terminal's PID registry.
+Each Codex path must contain `sessions/` and its account configuration. Codex
+identity matching searches all configured homes while preserving its existing
+title/status/text evidence rules. Inherited and archived fork history stays
+within the leaf transcript's account; a missing parent is never borrowed from
+another account. Repeated paths to the same file are deduplicated.
+
 Ambiguous matches are left unbound. Once bound, settings, history and helper
-queries follow the account owning that transcript. Claude model, command and
-usage caches are isolated by conversation. New Chat still uses the single
-`claudeConfigDir` override, environment or default, not the first additional root.
+queries follow the account owning that transcript. Model, command and usage
+caches are isolated by conversation for both agents. New Chat still uses the
+single `claudeConfigDir` / `codexHome` override, environment or default, not
+the first additional root. These lists support existing account profiles;
+they do not provide a login or account-switching UI.
 
 This does not move sessions or change the environment of already running
 terminals. Match the configuration to the directories those terminals use.

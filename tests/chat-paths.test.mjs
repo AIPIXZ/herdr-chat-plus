@@ -206,3 +206,77 @@ test("additional Claude directories validate, deduplicate and expand without ove
     await assert.rejects(createPathResolver(async () => JSON.stringify({ local: { claudeConfigDirs: value } }), execute(env))());
   }
 });
+
+test("Codex accounts match independently and keep inherited history, catalogs and helpers in the owning home", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "chat-codex-accounts-"));
+  try {
+    const roots = [join(dir, "account one"), join(dir, "account two [work]")];
+    const parent = "11111111-1111-1111-1111-111111111111";
+    const ids = ["22222222-2222-2222-2222-222222222222", "33333333-3333-3333-3333-333333333333"];
+    const files = roots.map((root, i) => join(root, "sessions", `rollout-${ids[i]}.jsonl`));
+    const meta = (id, extra = {}) => JSON.stringify({ type: "session_meta", payload: { id, cwd: "/repo", originator: "codex-tui", ...extra } }) + "\n";
+    const message = text => JSON.stringify({ type: "event_msg", payload: { type: "user_message", message: text } }) + "\n";
+    const anchors = ["The first account has a completely different inherited request", "The second account has this unique inherited conversation request"];
+    for (let i = 0; i < roots.length; i++) {
+      mkdirSync(join(roots[i], "sessions"), { recursive: true });
+      mkdirSync(join(roots[i], "archived_sessions"));
+      mkdirSync(join(roots[i], "prompts"));
+      const prefix = meta(parent) + message(anchors[i]);
+      writeFileSync(join(roots[i], "archived_sessions", `rollout-${parent}.jsonl`), prefix);
+      writeFileSync(files[i], meta(ids[i], { history_base: { thread_id: parent, end_byte_offset: Buffer.byteLength(prefix) } }) + message(`Another distinctive child request in account ${i}`));
+      writeFileSync(join(roots[i], "config.toml"), `model = "account-${i}-model"\n`);
+      writeFileSync(join(roots[i], "prompts", `profile-${i}.md`), "Profile-specific custom prompt");
+    }
+    const api = load("paths.js", "agentPaths, agentExec, pathsForFile, agentLaunch", {
+      appHome: () => dir, exec: execute(env), readTextFile: async () => JSON.stringify({ local: { codexHome: roots[0], codexHomes: roots } }),
+    });
+    const paths = await api.agentPaths();
+    assert.deepEqual(Array.from(paths.codexHomes), roots);
+    assert.equal(api.pathsForFile(paths, files[1]).codexHome, roots[1]);
+    assert.equal(api.pathsForFile(paths, join(roots[1], "archived_sessions", "log")).codexHome, roots[1]);
+    assert.equal(api.pathsForFile(paths, roots[1] + "-other/sessions/log").codexHome, roots[0]);
+    assert.equal((await api.agentLaunch(["codex"], "codex"))[1], `CODEX_HOME=${roots[0]}`);
+    const { HISTORY_PY, inheritedHistory } = load("history.js", "HISTORY_PY, inheritedHistory", { exec: api.agentExec });
+    const history = await inheritedHistory(files[1], null);
+    assert.equal(JSON.parse(history.lines[0]).payload.message, anchors[1]);
+    const { resolveSession } = load("session.js", "resolveSession", {
+      exec: api.agentExec, HISTORY_PY, machineOf: () => null, codexTitleIdentity: term => term.identity,
+    });
+    const term = { foreground: { cwd: "/repo" }, identity: { prefix: ids[1], complete: true } };
+    const matched = await resolveSession(term, "", files[0], files[1]);
+    assert.equal(matched.file, files[1]);
+    assert.equal(matched.invalidPrevious, false);
+    assert.equal((await resolveSession({ ...term, identity: null }, `Model: gpt-5\nSession: ${ids[1]}\nContext window: 30%`)).file, files[1]);
+    assert.equal((await resolveSession({ ...term, identity: null }, anchors[1] + "\nAnother distinctive child request in account 1")).file, files[1]);
+    const { catalog } = load("models.js", "catalog", { exec: api.agentExec });
+    assert.equal((await catalog("codex", null, files[1])).model, "account-1-model");
+    const { forkCandidates } = load("source.js", "forkCandidates", { exec: api.agentExec });
+    assert.deepEqual(Array.from(await forkCandidates(files[1], term), x => x.file), [files[1]]);
+    const { loadCommands } = load("commands.js", "loadCommands", { exec: api.agentExec, codexCalls: async () => [null] });
+    const commands = await loadCommands("codex", "/repo", null, files[1]);
+    assert.ok(commands.list.some(x => x.name.includes("profile-1")));
+    assert.ok(!commands.list.some(x => x.name.includes("profile-0")));
+    const { codexCalls, askCodexSide } = load("sdk.js", "codexCalls, askCodexSide", {
+      exec: async (_command, args, options) => api.agentExec("python3", ["-c",
+        'import json,os;print(json.dumps({"out":[os.environ["CODEX_HOME"]],"text":os.environ["CODEX_HOME"]}))'], options),
+    });
+    assert.equal((await codexCalls("/repo", [["config/read", {}]], null, files[1]))[0], roots[1]);
+    assert.equal((await askCodexSide("/repo", files[1], "question", [], null)).text, roots[1]);
+    // A missing parent in this account must never be borrowed from the other.
+    rmSync(join(roots[1], "archived_sessions", `rollout-${parent}.jsonl`));
+    await assert.rejects(inheritedHistory(files[1], null), /missing or ambiguous/);
+    writeFileSync(join(roots[0], "sessions", `rollout-copy-${ids[1]}.jsonl`), readFileSync(files[1]));
+    assert.equal((await resolveSession(term, "", files[1], files[1])).file, null);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("additional Codex homes validate and remain isolated by machine", async () => {
+  const resolve = createPathResolver(async () => JSON.stringify({
+    local: { codexHomes: ["~/secondary", "~/secondary"] }, machines: { mini: { codexHomes: ["/remote/profile"] } },
+  }), execute(env));
+  assert.deepEqual(Array.from((await resolve()).codexHomes), [join(homedir(), ".codex"), join(homedir(), "secondary")]);
+  assert.deepEqual(Array.from((await resolve("mini")).codexHomes), [join(homedir(), ".codex"), "/remote/profile"]);
+  for (const value of ["/single", [""], [3], ["relative"], ["/bad\npath"]]) {
+    await assert.rejects(createPathResolver(async () => JSON.stringify({ local: { codexHomes: value } }), execute(env))());
+  }
+});

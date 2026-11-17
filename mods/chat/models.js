@@ -28,12 +28,12 @@ export async function catalog(kind, on, sessionFile = null) {
     return { models, model, effort };
   }
   let c = {};
-  try { c = JSON.parse(await cat("codex", "models_cache.json", on)); } catch {}
+  try { c = JSON.parse(await cat("codex", "models_cache.json", on, sessionFile)); } catch {}
   const models = (c.models ?? []).filter((m) => m.visibility === "list").map((m) => ({
     id: m.slug, name: m.display_name ?? m.slug,
     efforts: (m.supported_reasoning_levels ?? []).map((l) => l.effort),
   }));
-  const toml = await cat("codex", "config.toml", on);
+  const toml = await cat("codex", "config.toml", on, sessionFile);
   const top = toml.split(/^\s*\[/m)[0] ?? "";
   return {
     models,

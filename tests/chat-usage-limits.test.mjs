@@ -22,7 +22,7 @@ function setup({saved=null,sharedState=new Map(),query,claude}={}){
  shared:key=>sharedState.get(key)??null,
  setShared:(key,value)=>sharedState.set(key,value),
  localStorage:{getItem:key=>store.get(key)??null,setItem:(key,value)=>store.set(key,value)},
- codexCalls:async(folder,requests,on)=>{calls++;routes.push({folder,on});return query?query(calls):[{rateLimits:quota(20)}];},
+ codexCalls:async(folder,requests,on,sessionFile)=>{calls++;routes.push({folder,on,sessionFile});return query?query(calls):[{rateLimits:quota(20)}];},
  control:async(...args)=>{calls++;return claude?claude(...args):[{rate_limits:{five_hour:{utilization:30}}}];},
  });
  const term={address:'t1',cwd:'/repo',foreground:{pid:42}};
@@ -153,4 +153,14 @@ test('usage cards render remaining percentage and bar width for Codex and Claude
  assert.equal(claudeCard.childNodes[3].childNodes[0].childNodes[1].childNodes[0],'8% left');
  assert.equal(claudeCard.childNodes[3].childNodes[1].childNodes[0].width,'8%');
  assert.equal(claudeCard.childNodes[3].childNodes[1].childNodes[0].background,theme.blocked);
+});
+
+test('Codex usage queries and cached limits stay with the bound account transcript',async()=>{
+ const s=setup({query:n=>[{rateLimits:quota(n*10)}]});
+ const first='/profiles/personal/sessions/first.jsonl',second='/profiles/work/sessions/second.jsonl';
+ s.view.file=first;s.view.loadUsageLimits(s.term,'codex',s.cx);await s.flush();
+ s.view.file=second;s.view.loadUsageLimits(s.term,'codex',s.cx);await s.flush();
+ assert.equal(s.routes[0].sessionFile,first);assert.equal(s.routes[1].sessionFile,second);
+ assert.equal(JSON.parse(s.store.get(`limits1:codex||${first}`)).limits.fiveHour.pct,10);
+ assert.equal(JSON.parse(s.store.get(`limits1:codex||${second}`)).limits.fiveHour.pct,20);
 });

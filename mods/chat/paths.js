@@ -15,11 +15,12 @@ export function machinePaths(config, on) {
       throw new Error(`chat-paths.json: ${key} must be a non-empty path`);
     result[key] = value[key];
   }
-  if (value.claudeConfigDirs !== undefined) {
-    if (!Array.isArray(value.claudeConfigDirs) || value.claudeConfigDirs.some(path =>
+  for (const key of ["claudeConfigDirs", "codexHomes"]) {
+    if (value[key] === undefined) continue;
+    if (!Array.isArray(value[key]) || value[key].some(path =>
       typeof path !== "string" || !path.trim() || /[\0\r\n]/.test(path)))
-      throw new Error("chat-paths.json: claudeConfigDirs must be an array of non-empty paths");
-    result.claudeConfigDirs = value.claudeConfigDirs;
+      throw new Error(`chat-paths.json: ${key} must be an array of non-empty paths`);
+    result[key] = value[key];
   }
   return result;
 }
@@ -37,10 +38,12 @@ def expand(value, key):
 def root(key, env, default):
     return expand(config.get(key) or os.environ.get(env) or str(pathlib.Path.home() / default), key)
 claude = root("claudeConfigDir", "CLAUDE_CONFIG_DIR", ".claude")
+codex = root("codexHome", "CODEX_HOME", ".codex")
+codex_homes = list(dict.fromkeys([codex] + [expand(p, "codexHomes") for p in config.get("codexHomes", [])]))
 directories = list(dict.fromkeys([claude] + [expand(p, "claudeConfigDirs") for p in config.get("claudeConfigDirs", [])]))
 print(json.dumps({"home": str(pathlib.Path.home()),
                   "claudeConfigDir": claude, "claudeConfigDirs": directories,
-                  "codexHome": root("codexHome", "CODEX_HOME", ".codex")}))
+                  "codexHome": codex, "codexHomes": codex_homes}))
 `;
 
 // Read once per machine/source version. Restart Herdr after editing chat-paths.json
@@ -69,7 +72,8 @@ export const agentPaths = createPathResolver(
 
 export function agentEnvironment(paths) {
   return [`CLAUDE_CONFIG_DIR=${paths.claudeConfigDir}`, `CODEX_HOME=${paths.codexHome}`,
-    `HERDR_CHAT_CLAUDE_DIRS=${JSON.stringify(paths.claudeConfigDirs)}`];
+    `HERDR_CHAT_CLAUDE_DIRS=${JSON.stringify(paths.claudeConfigDirs)}`,
+    `HERDR_CHAT_CODEX_HOMES=${JSON.stringify(paths.codexHomes)}`];
 }
 
 // A bound transcript selects its account; additional discovery roots do not
@@ -77,7 +81,9 @@ export function agentEnvironment(paths) {
 export function pathsForFile(paths, file) {
   const root = [...paths.claudeConfigDirs].sort((a, b) => b.length - a.length)
     .find(path => file?.startsWith(`${path.replace(/\/$/, "")}/projects/`));
-  return root ? { ...paths, claudeConfigDir: root } : paths;
+  const codexRoot = [...paths.codexHomes].sort((a, b) => b.length - a.length)
+    .find(path => ["sessions", "archived_sessions"].some(dir => file?.startsWith(`${path.replace(/\/$/, "")}/${dir}/`)));
+  return { ...paths, ...(root ? { claudeConfigDir: root } : {}), ...(codexRoot ? { codexHome: codexRoot } : {}) };
 }
 
 // Arguments are passed literally, never interpolated into a shell command.

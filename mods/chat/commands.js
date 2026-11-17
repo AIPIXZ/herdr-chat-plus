@@ -177,7 +177,7 @@ function front(text) {
   return { desc: field("description"), hint: field("argument-hint") };
 }
 
-const sh = (script, args, on) => exec("sh", ["-c", script, "sh", ...args], { on });
+const sh = (script, args, on, sessionFile) => exec("sh", ["-c", script, "sh", ...args], { on, sessionFile });
 
 // What each command does in the chat, as in the Claude app: some are answered
 // here (side chat, pickers, cards); the rest go to the agent as typed.
@@ -253,10 +253,10 @@ const CODEX_HOST = {
   diff: { action: "diff" }, copy: { action: "copy" },
 };
 
-async function codexCommands(folder, on) {
+async function codexCommands(folder, on, sessionFile) {
   const [r, [models]] = await Promise.all([
-    sh('for f in "$CODEX_HOME"/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on),
-    codexCalls(folder, [["model/list", {}]], on).catch(() => [null]),
+    sh('for f in "$CODEX_HOME"/prompts/*.md; do [ -f "$f" ] && { printf "\\036%s\\n" "$(basename "$f" .md)"; head -n 20 "$f"; }; done; true', [], on, sessionFile),
+    codexCalls(folder, [["model/list", {}]], on, sessionFile).catch(() => [null]),
   ]);
   const list = CODEX.map((c) => {
     const host = CODEX_HOST[c[0]];
@@ -275,7 +275,7 @@ async function codexCommands(folder, on) {
 
 export async function loadCommands(kind, folder, on, sessionFile = null) {
   if (kind === "claude") return claudeCommands(folder, on, sessionFile);
-  if (kind === "codex") return codexCommands(folder, on);
+  if (kind === "codex") return codexCommands(folder, on, sessionFile);
   return { list: [], models: [] };
 }
 

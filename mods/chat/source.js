@@ -151,7 +151,7 @@ for path in root.rglob("rollout-*.jsonl"):
     except Exception: pass
 print(json.dumps(sorted(found,key=lambda x:x["timestamp"],reverse=True)))
 `;
-  const result = await exec("python3", ["-c", script, file ?? "", term.foreground?.cwd ?? ""], { on: machineOf(term.address) });
+  const result = await exec("python3", ["-c", script, file ?? "", term.foreground?.cwd ?? ""], { on: machineOf(term.address), sessionFile: file });
   if (result.code !== 0) return [];
   try { return JSON.parse(result.stdout); } catch { return []; }
 }

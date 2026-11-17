@@ -216,14 +216,14 @@ for line in p.stdout:
 bail({"text": answer} if answer else {"error": err or "No answer"})
 `;
 
-const codexRun = async (folder, mode, arg, on) => {
-  const r = await exec("python3", ["-c", CODEX_PY, folder ?? "", mode, JSON.stringify(arg)], { on });
+const codexRun = async (folder, mode, arg, on, sessionFile = null) => {
+  const r = await exec("python3", ["-c", CODEX_PY, folder ?? "", mode, JSON.stringify(arg)], { on, sessionFile });
   try { return JSON.parse(r.stdout.trim().split("\n").pop()); } catch { return { error: r.stderr.trim() || "No answer" }; }
 };
 
 // Several app-server calls in one go: [[method, params], ...] → results.
-export async function codexCalls(folder, calls, on) {
-  const r = await codexRun(folder, "calls", { calls, timeout: 30 }, on);
+export async function codexCalls(folder, calls, on, sessionFile = null) {
+  const r = await codexRun(folder, "calls", { calls, timeout: 30 }, on, sessionFile);
   return r.out ?? calls.map(() => null);
 }
 
@@ -252,5 +252,5 @@ export async function askCodexSide(folder, rollout, question, history, on) {
   return codexRun(folder, "side", {
     fork: { threadId, path: rollout, cwd: folder, threadSource: "user", excludeTurns: true, ephemeral: true, developerInstructions: CODEX_SIDE },
     text, timeout: 120,
-  }, on);
+  }, on, rollout);
 }

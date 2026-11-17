@@ -10,7 +10,14 @@ import json, os, pathlib, sys, re, io, contextlib
 screen, cwd, hint, history, *extra = json.loads(sys.argv[1])
 identity = extra[0] if extra else None
 previous = extra[1] if len(extra) > 1 else None
-root = pathlib.Path(os.environ.get("CODEX_HOME") or pathlib.Path.home()/".codex").expanduser()/"sessions"
+homes = json.loads(os.environ.get("HERDR_CHAT_CODEX_HOMES") or "[]")
+if not homes: homes = [os.environ.get("CODEX_HOME") or str(pathlib.Path.home()/".codex")]
+roots = [pathlib.Path(home).expanduser()/"sessions" for home in homes]
+def candidates(pattern):
+    found = {}
+    for root in roots:
+        for path in root.rglob(pattern): found.setdefault(path.resolve(), path)
+    return found.values()
 def primary(meta):
     # Codex subagents (including Guardian) can copy their parent's complete
     # conversation. Their content must never identify the terminal's thread.
@@ -21,7 +28,7 @@ def read_meta(path):
         item = json.loads(stream.readline())
     return item.get("payload", {}) if item.get("type") == "session_meta" else {}
 try:
-    previous_valid = not previous or (pathlib.Path(previous).resolve().is_relative_to(root.resolve()) and primary(read_meta(previous)))
+    previous_valid = not previous or (any(pathlib.Path(previous).resolve().is_relative_to(root.resolve()) for root in roots) and primary(read_meta(previous)))
 except Exception:
     previous_valid = False
 def emit(**result):
@@ -35,7 +42,7 @@ if identity:
         raise RuntimeError("Invalid terminal title identity")
     matches = []
     subagent_hits = 0
-    for path in root.rglob("rollout-*" + prefix + "*.jsonl"):
+    for path in candidates("rollout-*" + prefix + "*.jsonl"):
         try:
             meta = read_meta(path)
             ident = meta.get("id", "")
@@ -53,7 +60,7 @@ def norm(s):
     return re.sub(r"[\\W_]+", "", s).casefold()
 found = []
 all_sessions = []
-for path in root.rglob("rollout-*.jsonl"):
+for path in candidates("rollout-*.jsonl"):
     try:
         meta = read_meta(path)
         if not primary(meta): continue

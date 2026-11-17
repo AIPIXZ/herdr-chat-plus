@@ -1,4 +1,4 @@
-import { openChat as openConversation, showTerminal, presentationPane } from "./presentation.js";
+import { openChat as openConversation, showTerminal, presentationPane, presentationVisible, targetCommands } from "./presentation.js";
 import { qualifyAddress, machineOfTab } from "./identity.js";
 import { conversationTitle, hasActionRequired } from "./title.js";
 // A pane's header, for layouts that frame their panes:
@@ -14,7 +14,7 @@ import { conversationTitle, hasActionRequired } from "./title.js";
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { panes, props, run, theme, home, terminals, openOverlay, closeOverlay, spaces, shared, notify } from "herdr";
+import { panes, props, run, theme, home, terminals, openOverlay, closeOverlay, spaces, shared, notify, layout } from "herdr";
 import { herdr, away, hide, show, switchView } from "./backstage.js";
 
 
@@ -224,7 +224,7 @@ export default class Pane extends View {
     const space = spaces().find((s) => s.tabs?.some((tab) => tab.id === (pair.chat?.tab ?? p.tab)));
     const title = conversationTitle(pair.term) || pair.term.name || pair.term.report?.app || "Chat";
     const { blocked, questioning } = attentionState(pair.term, p);
-    const chatMode = Boolean(props()?.presentation) || p.mod === "chat";
+    const chatMode = props()?.pane_mode ? presentationVisible(layout(), props()) : Boolean(props()?.presentation) || p.mod === "chat";
     const segment = (mode, label) => div().id(`view-${mode}-${p.pane}`).px(12).h(28).rounded(7)
       .flex().items_center().justify_center().cursor_pointer().text_size(12.5).font_medium()
       .bg((mode === "chat") === chatMode ? t.raised : t.chrome)
@@ -235,7 +235,7 @@ export default class Pane extends View {
     return h_flex().id(`conversation-header-${p.pane}`).size_full().px(14).gap(10).items_center()
       .bg(t.background).rounded_t(9).overflow_hidden().text_size(13)
       .on_hover((on, cx) => { this.hovered = on; cx.notify(); })
-      .on_click(() => { if (!chatMode) run("pane.focus", { pane: p.pane }); })
+      .on_click(() => { if (!chatMode) run("pane.focus", props()?.pane_mode ? { terminal: p.terminal } : { pane: p.pane }); })
       .child(div().flex_none().max_w(150).truncate().text_color(t.muted).child(space?.name ?? "herdr"))
       .child(div().flex_none().text_color(t.dim).child("/"))
       .child(div().flex_none().px(6).py(2).rounded(5).bg(t.chrome).text_size(11).text_color(t.muted)
@@ -248,7 +248,7 @@ export default class Pane extends View {
         .flex().items_center().justify_center().rounded(6).cursor_pointer().text_color(t.muted)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Search conversation")
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .on_click((_e, cx) => { cx.stop_propagation(); run("chat.search"); })
+        .on_click((_e, cx) => { cx.stop_propagation(); if (props()?.pane_mode) targetCommands({ pane: p.pane, tab: p.tab, terminal: p.terminal }); run("chat.search"); })
         .child(svg("mods/chat/icons/search.svg").size(14))))
       .when(this.hovered && !chatMode, (el) => el
         .child(this.splitButton(t, p, "right"))

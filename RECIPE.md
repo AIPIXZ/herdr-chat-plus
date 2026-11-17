@@ -4,7 +4,13 @@ A native chat workspace for existing Claude Code and Codex terminals: Chat/TUI s
 
 Chat is a personal layout presentation, not a core mod pane. The local
 `conversation-view` stack switches between `main` (the real tab split tree)
-and `conversation-page` (a 44 px chat-pane header plus the Chat body).
+and a personal presentation. Single-pane tabs use `conversation-page` (a
+44 px chat-pane header plus the Chat body). Split tabs use a projection of the
+core's row/column tree read through `doc.get`: each original terminal leaf has
+its own Chat/TUI stack. Preserve nesting, sizes and non-agent siblings; never
+replace a split tab with one full-size conversation. `pane_mode` props mark
+these views. Scope focus/search commands to the clicked owner, and consider
+only active leaf stacks when deciding whether a Chat copy is visible.
 
 Use the identical `presentation.js` helpers in chat/chat-pane/chat-tabs to open
 Chat. Save only terminal-local IDs in layout props: `terminal`, `owner_tab`,
@@ -14,8 +20,10 @@ client alias. Reject missing/ambiguous matches. Do not use the active machine
 or global bare terminal matches to guess identity.
 
 Opening Chat changes only the personal layout; it must never call pane.split,
-pane.zoom, terminal.park, or core doc.set. Returning to TUI selects `main` and
-focuses the original terminal without changing split proportions or zoom.
+pane.zoom, terminal.park, or core doc.set. Returning one pane to TUI keeps
+other Chat panes visible. When the last Chat returns to TUI, select `main` and
+focus the original terminal. If the shared pane membership changes while a
+projection is visible, return to the native tree so no new pane is hidden.
 Switching tabs/spaces restores the presentation remembered for the selected terminal. Chat has no split UI and consumes pane
 structure keyboard shortcuts. Other layouts and mobile keep native terminals.
 Old Chat panes and terminal labels are not automatically migrated or deleted.

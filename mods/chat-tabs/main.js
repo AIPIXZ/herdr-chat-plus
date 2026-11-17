@@ -145,7 +145,8 @@ export default class Tabs extends View {
         return div();
       }
     }
-    const leaveChat = view && view.active !== "main" && (!owner || owner.tab !== current);
+    const changedPanes = meta?.pane_mode && JSON.stringify(meta.pane_peers) !== JSON.stringify(tabPanes.map(p => `${p.pane.split("/").pop()}:${p.terminal?.split("/").pop() ?? null}`).sort());
+    const leaveChat = view && view.active !== "main" && (!owner || owner.tab !== current || changedPanes);
     if (leaveChat && !this.leavingChat) {
       this.leavingChat = true;
       run("layout.select", { stack: "conversation-view", child: "main" });

@@ -1,6 +1,6 @@
 # Herdr Chat Plus
 
-A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex terminals. **Chat / TUI** switches how you see the same running terminal. Chat does not create another shared terminal pane; TUI keeps Herdr's normal splits.
+A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex terminals. **Chat / TUI** switches how you see the same running terminal. In a split tab, each pane switches independently while its siblings remain visible. Chat does not create another shared terminal pane.
 
 Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original MIT license and author attribution are retained. Herdr Chat Plus is an independent layout project, not an official Herdr distribution.
 

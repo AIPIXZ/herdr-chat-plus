@@ -17,7 +17,7 @@ import { Transcript } from "./parse.js";
 import { inheritedHistory, rebaseHistory } from "./history.js";
 import { folderPoll } from "./poll.js";
 import { ownerPane, qualifyAddress, chatProps } from "./identity.js";
-import { openChat as openConversation, showTerminal, presentationPane, presentationVisible, presentationLayoutReady } from "./presentation.js";
+import { openChat as openConversation, showTerminal, presentationPane, presentationVisible, presentationLayoutReady, commandTargets } from "./presentation.js";
 import { resolveSession } from "./session.js";
 import { codexTitleIdentity, titleMatchesFile } from "./title.js";
 import { bindingKey, chooseBinding } from "./binding.js";
@@ -267,7 +267,7 @@ export default class Chat extends View {
     this.dialog = Boolean(p.overlay);
     this.presentation = Boolean(p.presentation);
     this.terminalId = this.dialog ? null : localId(p.terminal);
-    this.owner = { terminal: p.terminal, owner_tab: p.owner_tab, owner_pane: p.owner_pane };
+    this.owner = { terminal: p.terminal, owner_tab: p.owner_tab, owner_pane: p.owner_pane, pane_mode: p.pane_mode };
     this.started = Boolean(p.started);
     // What the New chat form launched with; Claude doesn't log its effort.
     if (p.model || p.effort) this.chosen = { model: p.model, effort: p.effort, logged: null };
@@ -319,7 +319,7 @@ export default class Chat extends View {
       this.updateMention(cx);
       cx.notify();
     });
-    if (!this.presentation || this.chatVisible()) this.input.focus();
+    if (!this.presentation || (this.chatVisible() && (!this.owner.pane_mode || commandTargets(this.owner)))) this.input.focus();
     this.promptInput = InputState.new({ placeholder: "Type a custom reply and press Enter…" });
     this.promptInput.on("submit", (_e, cx) => {
       const value = this.promptInput.value().trim();
@@ -372,7 +372,7 @@ export default class Chat extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (!this.chatVisible()) continue;
+        if (!this.chatVisible() || (this.owner?.pane_mode && !commandTargets(this.owner))) continue;
         if (c === "focus") this.input.focus();
         if (c === "search") this.openSearch(cx);
         cx.notify();

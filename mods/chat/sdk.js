@@ -98,8 +98,8 @@ stop_proc()
 os._exit(0)
 `;
 
-export async function control(folder, session, requests, { on = null, timeout = 45, settle = 0, delay = 0, withCommands = false } = {}) {
-  const r = await exec("python3", ["-c", PY, folder ?? "", session ?? "", JSON.stringify(requests), String(timeout), String(settle), String(delay)], { on });
+export async function control(folder, session, requests, { on = null, timeout = 45, settle = 0, delay = 0, withCommands = false, sessionFile = null } = {}) {
+  const r = await exec("python3", ["-c", PY, folder ?? "", session ?? "", JSON.stringify(requests), String(timeout), String(settle), String(delay)], { on, sessionFile });
   let res;
   try { res = JSON.parse(r.stdout.trim().split("\n").pop()); } catch { res = { out: requests.map(() => ({ error: r.stderr.trim() || "no answer" })), commands: null }; }
   return withCommands ? res : res.out;
@@ -107,8 +107,8 @@ export async function control(folder, session, requests, { on = null, timeout = 
 
 // What Claude offers in a folder: its commands (with the ones plugins and MCP
 // servers add) and its models, from the reply to the SDK's initialize.
-export async function claudeInfo(folder, on) {
-  const { out: [init], commands } = await control(folder, null, [{ subtype: "initialize" }], { on, timeout: 20, settle: 2.5, withCommands: true });
+export async function claudeInfo(folder, on, sessionFile = null) {
+  const { out: [init], commands } = await control(folder, null, [{ subtype: "initialize" }], { on, sessionFile, timeout: 20, settle: 2.5, withCommands: true });
   if (!init || init.error) return null;
   return { ...init, commands: commands ?? init.commands ?? [] };
 }
@@ -117,9 +117,9 @@ export async function claudeInfo(folder, on) {
 export const sessionOf = (file) => /([0-9a-f-]{36})\.jsonl$/.exec(file ?? "")?.[1] ?? null;
 
 // A side question about the session, with the earlier ones in this side chat.
-export async function askSide(folder, session, question, history, on) {
+export async function askSide(folder, session, question, history, on, sessionFile = null) {
   const req = { subtype: "side_question", question, ...(history.length ? { history } : {}) };
-  const [a] = await control(folder, session, [req], { on, timeout: 60 });
+  const [a] = await control(folder, session, [req], { on, sessionFile, timeout: 60 });
   if (!a || a.error) return { error: a?.error ?? "No answer" };
   if (a.response == null || a.synthetic) return { error: "No answer available for this side question. Try again." };
   return { text: a.response };
@@ -146,8 +146,8 @@ for f in sorted(glob.glob(glob.escape(d) + "/*.jsonl"), key=os.path.getmtime, re
 print(json.dumps(out))
 `;
 
-export async function listSessions(folder, on) {
-  const r = await exec("python3", ["-c", SESSIONS, folder], { on });
+export async function listSessions(folder, on, sessionFile = null) {
+  const r = await exec("python3", ["-c", SESSIONS, folder], { on, sessionFile });
   try { return JSON.parse(r.stdout); } catch { return []; }
 }
 

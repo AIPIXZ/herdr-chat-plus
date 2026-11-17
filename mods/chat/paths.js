@@ -15,22 +15,31 @@ export function machinePaths(config, on) {
       throw new Error(`chat-paths.json: ${key} must be a non-empty path`);
     result[key] = value[key];
   }
+  if (value.claudeConfigDirs !== undefined) {
+    if (!Array.isArray(value.claudeConfigDirs) || value.claudeConfigDirs.some(path =>
+      typeof path !== "string" || !path.trim() || /[\0\r\n]/.test(path)))
+      throw new Error("chat-paths.json: claudeConfigDirs must be an array of non-empty paths");
+    result.claudeConfigDirs = value.claudeConfigDirs;
+  }
   return result;
 }
 
 export const RESOLVE_PATHS_PY = `
 import json, os, pathlib, sys
 config = json.loads(sys.argv[1])
-def root(key, env, default):
-    value = config.get(key) or os.environ.get(env) or str(pathlib.Path.home() / default)
+def expand(value, key):
     path = pathlib.Path(value).expanduser()
     if not path.is_absolute():
         raise ValueError(key + " must be an absolute path or start with ~/")
     if any(c in str(path) for c in ("\\0", "\\r", "\\n")):
         raise ValueError(key + " contains a control character")
     return str(path)
+def root(key, env, default):
+    return expand(config.get(key) or os.environ.get(env) or str(pathlib.Path.home() / default), key)
+claude = root("claudeConfigDir", "CLAUDE_CONFIG_DIR", ".claude")
+directories = list(dict.fromkeys([claude] + [expand(p, "claudeConfigDirs") for p in config.get("claudeConfigDirs", [])]))
 print(json.dumps({"home": str(pathlib.Path.home()),
-                  "claudeConfigDir": root("claudeConfigDir", "CLAUDE_CONFIG_DIR", ".claude"),
+                  "claudeConfigDir": claude, "claudeConfigDirs": directories,
                   "codexHome": root("codexHome", "CODEX_HOME", ".codex")}))
 `;
 
@@ -59,13 +68,23 @@ export const agentPaths = createPathResolver(
   () => readTextFile(`${appHome()}/data/chat-paths.json`), exec);
 
 export function agentEnvironment(paths) {
-  return [`CLAUDE_CONFIG_DIR=${paths.claudeConfigDir}`, `CODEX_HOME=${paths.codexHome}`];
+  return [`CLAUDE_CONFIG_DIR=${paths.claudeConfigDir}`, `CODEX_HOME=${paths.codexHome}`,
+    `HERDR_CHAT_CLAUDE_DIRS=${JSON.stringify(paths.claudeConfigDirs)}`];
+}
+
+// A bound transcript selects its account; additional discovery roots do not
+// change the default account used by New Chat or unbound queries.
+export function pathsForFile(paths, file) {
+  const root = [...paths.claudeConfigDirs].sort((a, b) => b.length - a.length)
+    .find(path => file?.startsWith(`${path.replace(/\/$/, "")}/projects/`));
+  return root ? { ...paths, claudeConfigDir: root } : paths;
 }
 
 // Arguments are passed literally, never interpolated into a shell command.
 export async function agentExec(command, args, options = {}) {
-  const paths = await agentPaths(options.on);
-  return exec("env", [...agentEnvironment(paths), command, ...args], options);
+  const { sessionFile, ...execution } = options;
+  const paths = pathsForFile(await agentPaths(execution.on), sessionFile);
+  return exec("env", [...agentEnvironment(paths), command, ...args], execution);
 }
 
 export async function agentLaunch(argv, kind, on) {

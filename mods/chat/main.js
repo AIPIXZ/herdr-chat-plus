@@ -10,7 +10,7 @@ import {
   layout, keys, window as appWindow,
 } from "herdr";
 import * as fs from "fs/promises";
-import { agentPaths, agentLaunch } from "./paths.js";
+import { agentPaths, agentLaunch, pathsForFile } from "./paths.js";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
 import { Transcript } from "./parse.js";
@@ -439,13 +439,13 @@ export default class Chat extends View {
   // once while Claude is asked again (it takes a few seconds).
   loadCmds(term, kind, cx) {
     const folder = term?.foreground?.cwd ?? term?.cwd ?? null;
-    const key = kind && folder ? `${kind}|${machineOf(this.term) ?? ""}|${folder}` : null;
+    const key = kind && folder ? `${kind}|${machineOf(this.term) ?? ""}|${folder}${kind === "claude" ? `|${this.file ?? ""}` : ""}` : null;
     if (!key || key === this.cmdKey) return;
     this.cmdKey = key;
     try { ({ list: this.cmds, models: this.models, account: this.account, version: this.version } = JSON.parse(localStorage.getItem(`cmds2:${key}`) ?? "{}")); } catch { this.cmds = null; }
     cx.spawn(async (cx) => {
       try {
-        const got = await loadCommands(kind, folder, machineOf(this.term));
+        const got = await loadCommands(kind, folder, machineOf(this.term), this.file);
         if (this.cmdKey !== key || !got.list.length) return;
         this.cmds = got.list;
         this.models = got.models;
@@ -498,7 +498,7 @@ export default class Chat extends View {
     const folder = term?.foreground?.cwd ?? term?.cwd ?? null;
     const target = term?.address ?? this.term;
     const on = machineOf(target);
-    const key = ["codex", "claude"].includes(kind) ? `${kind}|${on ?? ""}` : null;
+    const key = ["codex", "claude"].includes(kind) ? `${kind}|${on ?? ""}${kind === "claude" && this.file ? `|${this.file}` : ""}` : null;
     const context = key ? JSON.stringify([key,target]) : null;
     if (context !== this.limitsContext) {
       this.limitsContext = context;
@@ -532,7 +532,7 @@ export default class Chat extends View {
           const [limits] = await codexCalls(folder, [["account/rateLimits/read", null]], on).catch(() => [null]);
           raw = limits?.rateLimits ?? null;
         } else {
-          const [usage] = await control(folder, null, [{ subtype: "get_usage" }], { on, timeout: 25 }).catch(() => [null]);
+          const [usage] = await control(folder, null, [{ subtype: "get_usage" }], { on, sessionFile: this.file, timeout: 25 }).catch(() => [null]);
           raw = usage?.rate_limits ?? null;
         }
         if (generation !== this.limitsGeneration || this.limitsKey !== key || this.term !== target) return;
@@ -1224,7 +1224,7 @@ export default class Chat extends View {
         const list = this.current().kind === "codex"
           ? ((await codexCalls(folder, [["thread/list", { cwd: folder, limit: 40, sourceKinds: ["cli", "vscode", "exec", "appServer"] }]], machineOf(this.term)).catch(() => [null]))[0]?.data ?? [])
             .map((x) => ({ id: x.id, title: (x.name ?? x.preview ?? "").split("\n")[0], at: (x.updatedAt ?? 0) * 1000 }))
-          : await listSessions(folder, machineOf(this.term)).catch(() => []);
+          : await listSessions(folder, machineOf(this.term), this.file).catch(() => []);
         this.sessions = list.filter((x) => x.id !== mine).map((x) => ({ ...x, when: ago(x.at) }));
         cx.notify();
       });
@@ -1317,7 +1317,7 @@ export default class Chat extends View {
     const kb = (n) => (n > 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} bytes`);
     cx.spawn(async (cx) => {
       try {
-        const { home: H, claudeConfigDir: claudeHome, codexHome } = await agentPaths(on);
+        const { home: H, claudeConfigDir: claudeHome, codexHome } = pathsForFile(await agentPaths(on), this.file);
         const ancestors = (f) => { const out = []; let d = f; while (d && d !== "/" && d.startsWith(H) && d !== H) { out.push(d); d = d.replace(/\/[^/]+$/, ""); } return out.reverse(); };
         if (what === "memory") {
           const files = kind === "codex"
@@ -1333,7 +1333,7 @@ export default class Chat extends View {
         } else if (what === "hooks") {
           let hooks = [];
           if (kind === "codex") hooks = ((await codexCalls(folder, [["hooks/list", {}]], on))[0]?.data ?? []).flatMap((x) => x.hooks ?? []);
-          else hooks = (await control(folder, null, [{ subtype: "get_hooks_listing" }], { on }))[0]?.hooks ?? [];
+          else hooks = (await control(folder, null, [{ subtype: "get_hooks_listing" }], { on, sessionFile: this.file }))[0]?.hooks ?? [];
           e.sections = [{ rows: hooks.map((h) => ({ label: [h.event ?? h.eventName ?? h.hookEventName, h.matcher].filter(Boolean).join(" · ") || "Hook",
             detail: h.command ?? h.hook?.command ?? h.prompt ?? JSON.stringify(h.hooks ?? h), status: h.source ?? h.scope ?? "" })) }];
           if (!hooks.length) e.note = "No hooks set up.";
@@ -1346,7 +1346,7 @@ export default class Chat extends View {
               status: m.authStatus === "notLoggedIn" ? "needs login" : m.runtimeStatus ?? "",
               actions: m.authStatus === "notLoggedIn" ? [["Log in", say(`/mcp login ${m.name}`)]] : [] })) }];
           } else {
-            const list = (await control(folder, null, [{ subtype: "mcp_status" }], { on, delay: 5, timeout: 30 }))[0]?.mcpServers ?? [];
+            const list = (await control(folder, null, [{ subtype: "mcp_status" }], { on, sessionFile: this.file, delay: 5, timeout: 30 }))[0]?.mcpServers ?? [];
             e.sections = [{ rows: list.map((m) => ({ label: m.name, detail: [m.transport, m.scope, m.urlHost ?? m.config?.command].filter(Boolean).join(" · "),
               status: m.status, actions: [["Reconnect", say(`/mcp reconnect ${m.name}`)], m.status === "disabled" ? ["Enable", say(`/mcp enable ${m.name}`)] : ["Disable", say(`/mcp disable ${m.name}`)]] })) }];
           }
@@ -1369,7 +1369,7 @@ export default class Chat extends View {
               detail: q.interface?.shortDescription ?? "", status: q.enabled ? "on" : "off" })) })).filter((x) => x.rows.length);
             e.buttons.push(["Browse plugins", say("/plugins")]);
           } else {
-            const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
+            const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on, sessionFile: this.file });
             const raw = await exec("sh", ["-c", 'cat "$1" 2>/dev/null', "sh", `${claudeHome}/plugins/installed_plugins.json`], { on });
             let installed = {};
             try { installed = JSON.parse(raw.stdout).plugins ?? {}; } catch {}
@@ -1386,7 +1386,7 @@ export default class Chat extends View {
             e.sections = [{ rows: Object.entries(c).filter(([, v]) => v != null && !(typeof v === "object" && !Object.keys(v).length)).map(([k, v]) => ({ label: k, detail: show(v) })) }];
             e.buttons.push(["Edit config.toml", edit(`${codexHome}/config.toml`, "Codex settings")], ["Open in terminal", say("/settings")]);
           } else {
-            const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
+            const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on, sessionFile: this.file });
             e.sections = [{ rows: Object.entries(st?.effective ?? {}).map(([k, v]) => ({ label: k, detail: show(v) })) },
               ...(st?.sources ?? []).length ? [{ title: "From", rows: st.sources.map((x) => ({ label: x.source.replace(/Settings$/, ""), detail: Object.keys(x.settings ?? {}).join(", ") })) }] : []];
             e.buttons.push(["Edit your settings", edit(`${claudeHome}/settings.json`, "Claude Code settings")],
@@ -1450,12 +1450,12 @@ export default class Chat extends View {
           ].filter(([, v]) => v),
         });
       } else {
-        const [u] = await control(folder, sessionOf(this.file), [{ subtype: "get_usage" }], { on: machineOf(usageTarget) });
+        const [u] = await control(folder, sessionOf(this.file), [{ subtype: "get_usage" }], { on: machineOf(usageTarget), sessionFile: this.file });
         if (!u || u.error) e.error = u?.error ?? "No answer";
         else {
           Object.assign(e, { usage: u });
           if (this.term === usageTarget) {
-            this.saveUsageSnapshot(usageSnapshot(u.rate_limits, Date.now(), "api"), `${kind}|${machineOf(usageTarget) ?? ""}`);
+            this.saveUsageSnapshot(usageSnapshot(u.rate_limits, Date.now(), "api"), `${kind}|${machineOf(usageTarget) ?? ""}${this.file ? `|${this.file}` : ""}`);
           }
         }
       }
@@ -1491,7 +1491,7 @@ export default class Chat extends View {
       if (!session) item.error = kind ? "Send a message in the main chat first: the side chat answers from its conversation." : "Side questions work with Claude Code and Codex agents.";
       else {
         const ask = kind === "codex" ? askCodexSide : askSide;
-        const r = await ask(term?.foreground?.cwd ?? term?.cwd ?? null, session, question, history, machineOf(this.term)).catch((e) => ({ error: String(e?.message ?? e) }));
+        const r = await ask(term?.foreground?.cwd ?? term?.cwd ?? null, session, question, history, machineOf(this.term), this.file).catch((e) => ({ error: String(e?.message ?? e) }));
         item.a = r.text ?? null;
         item.error = r.error ?? null;
       }
@@ -1677,11 +1677,12 @@ export default class Chat extends View {
   }
 
   loadCatalog(kind, machine, cx) {
-    const key = `${kind}@${machine ?? ""}`;
+    const sessionFile = this.file;
+    const key = `${kind}@${machine ?? ""}${kind === "claude" && this.file ? `|${this.file}` : ""}`;
     if (this.catalogs[key]) return this.catalogs[key];
     this.catalogs[key] = { models: [], loading: true };
     cx.spawn(async (cx) => {
-      try { this.catalogs[key] = await catalog(kind, machine); } catch { this.catalogs[key] = { models: [] }; }
+      try { this.catalogs[key] = await catalog(kind, machine, sessionFile); } catch { this.catalogs[key] = { models: [] }; }
       cx.notify();
     });
     return this.catalogs[key];
@@ -2646,7 +2647,7 @@ export default class Chat extends View {
         // Claude resets effort to the new model's default; send it too.
         const m = model && model !== cur.model ? model : kind === "codex" ? cur.model : null;
         const e = effort ?? cur.effort;
-        await switchModel(this.term, kind, m, e, machineOf(this.term), (ms) => sleep(cx, ms));
+        await switchModel(this.term, kind, m, e, machineOf(this.term), (ms) => sleep(cx, ms), this.file);
         this.chosen = { model: model ?? cur.model, effort: e ?? cur.effort, logged: this.t?.model };
         this.error = null;
       } catch (err) {
@@ -2676,7 +2677,7 @@ export default class Chat extends View {
   }
 
   loadCatalogCached(kind, machine) {
-    return this.catalogs[`${kind}@${machine ?? ""}`] ?? null;
+    return this.catalogs[`${kind}@${machine ?? ""}${kind === "claude" && this.file ? `|${this.file}` : ""}`] ?? null;
   }
 
   // Show the existing terminal in the conversation's area, never beside it.

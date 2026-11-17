@@ -85,10 +85,32 @@ agent helper processes. New Chat also passes the selected root to the agent.
 Project-local settings remain in the project. Invalid configuration reports an
 error instead of silently selecting another root.
 
-This selects one directory per agent per machine; it does not move existing
-sessions or change the environment of already running terminals. Match the
-configuration to the directory those terminals use. Install/update preserves
-this file in `data/`.
+For multiple Claude accounts, add `claudeConfigDirs` to `local` or a machine
+entry. These are additional discovery roots; they do not override the default
+account or Codex directory:
+
+```json
+{
+  "local": {
+    "claudeConfigDirs": [
+      "~/agent-profiles/account-one/config",
+      "~/agent-profiles/account-two/config"
+    ]
+  }
+}
+```
+
+Each path must be the directory containing `projects/` and `settings.json`,
+which may be a `config/` subdirectory inside an account folder. Chat searches
+the default root and these additional roots using the terminal's PID registry.
+Ambiguous matches are left unbound. Once bound, settings, history and helper
+queries follow the account owning that transcript. Claude model, command and
+usage caches are isolated by conversation. New Chat still uses the single
+`claudeConfigDir` override, environment or default, not the first additional root.
+
+This does not move sessions or change the environment of already running
+terminals. Match the configuration to the directories those terminals use.
+Install/update preserves this file in `data/`.
 
 ## Development
 

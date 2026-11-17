@@ -213,8 +213,8 @@ function kindOf(c) {
   return "harness";
 }
 
-async function claudeCommands(folder, on) {
-  const info = await claudeInfo(folder, on);
+async function claudeCommands(folder, on, sessionFile) {
+  const info = await claudeInfo(folder, on, sessionFile);
   const list = [];
   const have = new Set();
   for (const c of info?.commands ?? []) {
@@ -273,8 +273,8 @@ async function codexCommands(folder, on) {
   return { list: list.sort((x, y) => x.name.localeCompare(y.name)), models: catalog };
 }
 
-export async function loadCommands(kind, folder, on) {
-  if (kind === "claude") return claudeCommands(folder, on);
+export async function loadCommands(kind, folder, on, sessionFile = null) {
+  if (kind === "claude") return claudeCommands(folder, on, sessionFile);
   if (kind === "codex") return codexCommands(folder, on);
   return { list: [], models: [] };
 }

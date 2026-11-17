@@ -152,3 +152,57 @@ test("Codex matching, fork candidates and archived history follow the configured
     assert.deepEqual(Array.from(await forkCandidates(file, { foreground: { cwd: "/repo" } }), (x) => x.file), [file]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("multiple Claude accounts discover the owning log and keep helpers and history in that account", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "chat-accounts-"));
+  try {
+    const roots = [join(dir, "account one/config"), join(dir, "account two/config")];
+    const id = "11111111-1111-1111-1111-111111111111";
+    const files = roots.map(root => join(root, "projects/-repo", id + ".jsonl"));
+    for (let i = 0; i < roots.length; i++) {
+      mkdirSync(join(roots[i], "projects/-repo"), { recursive: true });
+      mkdirSync(join(roots[i], "sessions"));
+      writeFileSync(files[i], JSON.stringify({ customTitle: `account ${i}` }) + "\n");
+      writeFileSync(join(roots[i], "settings.json"), JSON.stringify({ model: `account-${i}-model` }));
+    }
+    const api = load("paths.js", "agentPaths, agentExec, pathsForFile, agentLaunch", {
+      appHome: () => dir, readTextFile: async () => JSON.stringify({ local: { claudeConfigDirs: roots } }), exec: execute(env),
+    });
+    const paths = await api.agentPaths();
+    assert.equal(paths.claudeConfigDir, join(homedir(), ".claude"));
+    assert.equal(paths.codexHome, join(homedir(), ".codex"));
+    assert.equal(api.pathsForFile(paths, files[1]).claudeConfigDir, roots[1]);
+    assert.equal(api.pathsForFile(paths, roots[1] + "-other/projects/log").claudeConfigDir, paths.claudeConfigDir);
+    // A copied transcript alone must not choose the wrong account.
+    const registry = roots.map(root => join(root, "sessions", process.pid + ".json"));
+    writeFileSync(registry[1], JSON.stringify({ sessionId: id }));
+    const { locate } = load("source.js", "locate", { exec: api.agentExec });
+    assert.equal(await locate({ foreground: { pid: process.pid } }, "claude"), files[1]);
+    const { catalog } = load("models.js", "catalog", { exec: api.agentExec });
+    assert.equal((await catalog("claude", null, files[1])).model, "account-1-model");
+    const { listSessions, control } = load("sdk.js", "listSessions, control", {
+      exec: async (command, args, options) => {
+        if (args[1].includes("stop_proc")) {
+          const r = await api.agentExec("python3", ["-c", 'import json,os;print(json.dumps({"out":[os.environ["CLAUDE_CONFIG_DIR"]]}))'], options);
+          return r;
+        }
+        return api.agentExec(command, args, options);
+      },
+    });
+    assert.equal((await listSessions("/repo", null, files[1]))[0].title, "account 1");
+    assert.equal((await control("/repo", null, [{}], { sessionFile: files[1] }))[0], roots[1]);
+    writeFileSync(registry[0], JSON.stringify({ sessionId: id }));
+    assert.equal(await locate({ foreground: { pid: process.pid } }, "claude"), null);
+    assert.equal((await api.agentLaunch(["claude"], "claude"))[1], `CLAUDE_CONFIG_DIR=${paths.claudeConfigDir}`);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("additional Claude directories validate, deduplicate and expand without overriding defaults", async () => {
+  const resolve = createPathResolver(async () => JSON.stringify({ local: {
+    claudeConfigDir: "~/primary", claudeConfigDirs: ["~/primary", "~/second", "~/second"],
+  } }), execute(env));
+  assert.deepEqual(Array.from((await resolve()).claudeConfigDirs), [join(homedir(), "primary"), join(homedir(), "second")]);
+  for (const value of ["/single", [""], [3], ["relative"], ["/bad\npath"]]) {
+    await assert.rejects(createPathResolver(async () => JSON.stringify({ local: { claudeConfigDirs: value } }), execute(env))());
+  }
+});

@@ -5,7 +5,8 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
+import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, appHome, checking, readTextFile, writeTextFile } from "herdr";
+import { patchSettingsMachinesSource } from "./settings-routes.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -76,11 +77,23 @@ export default class Spaces extends View {
     this.reconnecting = JSON.parse(localStorage.getItem("machines.reconnecting") ?? "{}");
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
+    if (!checking()) this.ensureSettingsRoutes(cx);
     this.refreshMachines(cx);
     cx.timer.every(15000, cx => this.refreshMachines(cx));
     // `git status` walks the whole tree, on another machine a process there:
     // only when its answer could have changed (see `due`).
     cx.timer.every(250, (cx) => this.checkNew(cx));
+  }
+
+  ensureSettingsRoutes(cx) {
+    cx.spawn(async () => {
+      try {
+        const path = `${appHome()}/frame/settings/main.js`;
+        const raw = await readTextFile(path);
+        const next = patchSettingsMachinesSource(raw);
+        if (raw && next && next !== raw) await writeTextFile(path, next, raw);
+      } catch {}
+    });
   }
 
   checkNew(cx) {
@@ -310,7 +323,15 @@ export default class Spaces extends View {
   grouped(t, collapsed) {
     const rows = this.ordered();
     const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t));
-    const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
+    const switchingMap = shared("machines.switching") ?? {};
+    const detachedMap = shared("machine.routes.detached") ?? {};
+    const remote = [...new Set([
+      ...rows.map(r => r.w.machine).filter(Boolean),
+      ...this.machines.map(m => m.name),
+      ...Object.keys(this.reconnecting),
+      ...Object.keys(switchingMap),
+      ...Object.keys(detachedMap),
+    ])].sort();
     const loading = m => {
       const layout = machines().find(k => k.name === m)?.layout;
       return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
@@ -322,9 +343,10 @@ export default class Spaces extends View {
     return machineNames.flatMap((m) => {
       const mine = rows.filter((r) => (r.w.machine ?? null) === m);
       const repair = this.reconnecting[m];
-      const machine = this.machines.find(k => k.name === m) ?? repair?.machine;
-      const connected = !m || machine?.state === "connected";
-      const rebuilt = this.rebuilt(machine) || !!repair;
+      const switching = switchingMap[m];
+      const machine = this.machines.find(k => k.name === m) ?? switching ?? detachedMap[m] ?? repair?.machine;
+      const connected = !m || (!switching && machine?.state === "connected");
+      const rebuilt = !switching && (this.rebuilt(machine) || !!repair);
       const folded = this.folded.has(m);
       const head = h_flex().id(`machine-${m ?? "local"}`).h(26).flex_none().px(collapsed ? 0 : 8).gap(7).items_center().text_size(11).text_color(t.dim)
         .when(collapsed, el => el.justify_center().tooltip(m ?? "This computer"))
@@ -336,7 +358,7 @@ export default class Spaces extends View {
         })
         .child(svg(`mods/workspace-chrome/${m ? "server" : "monitor"}.svg`).size(13).flex_none())
         .when(!collapsed, el => el.child(div().flex_1().truncate().child(m ?? "This computer"))
-          .when(!connected && !rebuilt, el => el.child(div().flex_none().child((machine?.state ?? "asleep").replace(/_/g, " "))))
+          .when(!connected && !rebuilt, el => el.child(div().flex_none().child(switching ? "switching…" : (machine?.state ?? "asleep").replace(/_/g, " "))))
           .when(rebuilt, el => el.child(h_flex().flex_none().gap(3).items_center()
             .child(div().max_w(140).truncate().child(repair?.error || "rebuilt ·"))
             .child(div().id(`machine-connect-${m}`).text_color(repair?.error ? t.blocked : t.muted)

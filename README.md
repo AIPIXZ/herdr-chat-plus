@@ -15,6 +15,12 @@ Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original
 - **Follow-ups without interrupting.** Queue messages while the agent works, send a selected message instantly, and retry failed deliveries.
 - **A comfortable native chat UI.** Rich Markdown, attachments, image preview with zoom and copy, and matching Catppuccin light and dark themes.
 
+### Multiple routes to one machine
+
+In **Settings → Machines**, save multiple SSH addresses or aliases for the same machine. Add a route, switch with **Use**, or remove an unused route; the current route is highlighted. This lets you choose the appropriate connection for your network without adding the same machine again.
+
+![Machine settings with multiple SSH routes and the current route highlighted](screenshots/machine-routes.png)
+
 ## Install and update
 
 Requirements: Herdr App, Python 3.9+, and Claude Code or Codex on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.

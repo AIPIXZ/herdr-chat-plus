@@ -18,7 +18,7 @@ function setup(dark=true){
   }});return proxy;
  }
  let opened=0;const t={background:'#111',surface:'#222',border:'#333',foreground:'#eee',muted:'#aaa',dim:'#888',raised:'#444'};
- const context={View:class{},appWindow:()=>({platform:'macos'}),div:()=>element('div'),v_flex:()=>element('column'),h_flex:()=>element('row'),image:()=>element('image'),settings:()=>({dark}),theme:()=>t,splitMarkdownTables,
+ const context={View:class{},shared:()=>null,appWindow:()=>({platform:'macos'}),div:()=>element('div'),v_flex:()=>element('column'),h_flex:()=>element('row'),image:()=>element('image'),settings:()=>({dark}),theme:()=>t,splitMarkdownTables,
  TextView:{markdown:()=>element('markdown')},openOverlay:()=>opened++};
  const renderTable=runInNewContext(tables+'\nrenderTable',context);
  const Chat=runInNewContext(main+'\nChat',{...context,renderTable});

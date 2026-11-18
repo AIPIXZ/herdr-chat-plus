@@ -14,7 +14,7 @@ import { conversationTitle, hasActionRequired } from "./title.js";
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { panes, props, run, theme, home, terminals, openOverlay, closeOverlay, spaces, shared, notify } from "herdr";
+import { panes, props, run, theme, home, terminals, openOverlay, closeOverlay, spaces, shared, setShared, notify } from "herdr";
 import { herdr, away, hide, show, switchView } from "./backstage.js";
 
 
@@ -250,6 +250,21 @@ export default class Pane extends View {
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); run("chat.search"); })
         .child(svg("mods/chat/icons/search.svg").size(14))))
+      // Chat text size, independent of the app zoom.
+      .when(chatMode, (el) => {
+        const scale = Math.min(2, Math.max(0.7, Number(shared("chat.fontScale")) || 1));
+        const step = (id, label, next, tip) => div().id(`chat-font-${id}-${p.pane}`).h(26).px(7).flex_none()
+          .flex().items_center().justify_center().rounded(6).cursor_pointer().text_size(12).text_color(t.muted)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip(tip)
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); setShared("chat.fontScale", next); cx.notify(); })
+          .child(label);
+        const to = (v) => Math.round(Math.min(2, Math.max(0.7, v)) * 20) / 20;
+        return el.child(h_flex().flex_none().gap(0).items_center()
+          .child(step("down", "A−", to(scale - 0.05), "Smaller chat text"))
+          .child(step("reset", `${Math.round(scale * 100)}%`, 1, "Reset chat text size"))
+          .child(step("up", "A+", to(scale + 0.05), "Larger chat text")));
+      })
       .when(this.hovered && !chatMode, (el) => el
         .child(this.splitButton(t, p, "right"))
         .child(this.splitButton(t, p, "down"))

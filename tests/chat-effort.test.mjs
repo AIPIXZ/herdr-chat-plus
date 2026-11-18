@@ -13,7 +13,7 @@ function setup(kind='claude',model='grok/grok-4.7',efforts=[]) {
   if(key==='on_click') return ()=>element();
   return ()=>element();
  }});
- const Chat=runInNewContext(source+'\nChat',{View:class {},appWindow:()=>({platform:'macos'}),
+ const Chat=runInNewContext(source+'\nChat',{View:class {},shared:()=>null,appWindow:()=>({platform:'macos'}),
   div:element,h_flex:element,v_flex:element,svg:element,modelName:(_models,id)=>id,
   CLAUDE_EFFORTS:["low","medium","high","xhigh","max"],
   machineOf:()=>null, sleep:()=>{}, switchModel:async(...args)=>{view.switched=args;},

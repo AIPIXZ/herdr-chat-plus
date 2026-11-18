@@ -16,7 +16,7 @@ function setup(off=200){
    return proxy;
   }});return proxy;
  }
- const Chat=runInNewContext(source+'\nChat',{View:class{},appWindow:()=>({platform:'macos'}),div:element,v_flex:element,h_flex:element,withPending:()=>[]});
+ const Chat=runInNewContext(source+'\nChat',{View:class{},shared:()=>null,appWindow:()=>({platform:'macos'}),div:element,v_flex:element,h_flex:element,withPending:()=>[]});
  const view=Object.assign(Object.create(Chat.prototype),{off,contentH:1400,viewH:600,width:900,open:new Set(),t:{},pending:[],settle(){},shown:()=>({start:0,ents:[]}),streamShown:()=>null});
  let redraws=0;const cx={notify(){redraws++;}};
  return {view,elements,cx,redraws:()=>redraws};

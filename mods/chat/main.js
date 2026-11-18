@@ -43,6 +43,12 @@ import { IdentifyFeedback, identifyKey } from "./identify.js";
 import { Outbox, outboxScope } from "./outbox.js";
 import { herdr, chatTab, away, hide, show, switchView } from "./backstage.js";
 
+
+// on_size_change and wheel deltas arrive in window px (app zoom applied), while
+// .top()/.h() take px at zoom 1. Convert so the scroll math stays in one unit.
+const zoomOf = () => Number(settings().zoom) || 1;
+const unzoom = (size) => ({ width: size.width / zoomOf(), height: size.height / zoomOf() });
+
 const ASK_FIRST = "Answer the question above first.";
 
 const CACHE = "data/chat";
@@ -3370,6 +3376,7 @@ export default class Chat extends View {
     const side = Math.max(18, Math.round((this.width - 900) / 2) + 16);
     const content = v_flex().id("content").absolute().left(0).right(0).top(this.contentH > 0 ? this.viewH - this.contentH + this.off : 0).px(side).py(24).gap(0)
       .on_size_change((size, cx) => {
+        size = unzoom(size);
         if (size.height === this.contentH) { this.anchorCard = false; return; }
         // Position from the measured top, not the new bottom: height changes
         // must not move the whole page for a frame before this correction.
@@ -3408,11 +3415,12 @@ export default class Chat extends View {
 
     const scroll = div().id("scroll").relative().flex_1().min_h(0).overflow_hidden()
       .on_size_change((size, cx) => {
+        size = unzoom(size);
         if (this.viewH === size.height && this.width === size.width) return;
         this.viewH = size.height; this.width = size.width; this.clamp(); cx.notify();
       })
       .on_mouse_move(event => { this.chatBounds = event.bounds; })
-      .on_scroll_wheel((e, cx) => { this.off += e.delta.y; this.clamp(); cx.notify(); })
+      .on_scroll_wheel((e, cx) => { this.off += e.delta.y / zoomOf(); this.clamp(); cx.notify(); })
       .child(content);
 
     // A thin scroll thumb, and a way back to the newest message.

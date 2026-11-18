@@ -4,7 +4,7 @@ import {runInNewContext} from 'node:vm';
 import {test} from 'node:test';
 const source=readFileSync(new URL('../mods/chat/main.js',import.meta.url),'utf8')
  .replace(/^import[\s\S]*?;\n/gm,'').replace('export default class Chat','class Chat');
-function setup(off=200){
+function setup(off=200,zoom=1){
  const elements=new Map();
  function element(){
   const state={};let proxy;
@@ -16,7 +16,7 @@ function setup(off=200){
    return proxy;
   }});return proxy;
  }
- const Chat=runInNewContext(source+'\nChat',{View:class{},appWindow:()=>({platform:'macos'}),div:element,v_flex:element,h_flex:element,withPending:()=>[]});
+ const Chat=runInNewContext(source+'\nChat',{View:class{},settings:()=>({zoom}),appWindow:()=>({platform:'macos'}),div:element,v_flex:element,h_flex:element,withPending:()=>[]});
  const view=Object.assign(Object.create(Chat.prototype),{off,contentH:1400,viewH:600,width:900,open:new Set(),t:{},pending:[],settle(){},shown:()=>({start:0,ents:[]}),streamShown:()=>null});
  let redraws=0;const cx={notify(){redraws++;}};
  return {view,elements,cx,redraws:()=>redraws};
@@ -42,4 +42,11 @@ test('unchanged content and viewport dimensions do not schedule another redraw',
  s.elements.get('content').resize({height:1400},s.cx);
  s.elements.get('scroll').resize({height:600,width:900},s.cx);
  assert.equal(s.redraws(),0);
+});
+test('measured sizes are converted from zoomed window pixels before positioning',()=>{
+ const s=setup(0,1.1);s.view.contentH=0;s.view.viewH=0;s.view.body({});
+ s.elements.get('scroll').resize({width:990,height:660},s.cx);
+ s.elements.get('content').resize({height:1540},s.cx);s.view.body({});
+ assert.equal(Math.round(s.view.viewH),600);assert.equal(Math.round(s.view.contentH),1400);
+ assert.equal(Math.round(s.elements.get('content').top),-800);
 });

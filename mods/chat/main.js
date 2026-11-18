@@ -43,6 +43,13 @@ import { IdentifyFeedback, identifyKey } from "./identify.js";
 import { Outbox, outboxScope } from "./outbox.js";
 import { herdr, chatTab, away, hide, show, switchView } from "./backstage.js";
 
+
+// Chat text size, independent of the app zoom: a factor kept in
+// shared("chat.fontScale") and changed from the chat pane header.
+const chatScale = () => Math.min(2, Math.max(0.7, Number(shared("chat.fontScale")) || 1));
+const fsz = (n) => Math.round(n * chatScale() * 2) / 2;
+const lh = (n) => `${Math.round(n * chatScale())}px`;
+
 const ASK_FIRST = "Answer the question above first.";
 
 const CACHE = "data/chat";
@@ -821,7 +828,7 @@ export default class Chat extends View {
       return div().w_full().relative()
         .child(this.markdown(id, `${p.fence}\n${p.code}\n${p.fence}`))
         .child(h_flex().absolute().top(5).right(6).gap(4).items_center().px(6).py(2).rounded(6).bg(t.popover).border(0.5).border_color(t.border)
-          .when(Boolean(p.lang), (el) => el.child(div().pr(4).text_size(11).text_color(t.dim).child(p.lang)))
+          .when(Boolean(p.lang), (el) => el.child(div().pr(4).text_size(fsz(11)).text_color(t.dim).child(p.lang)))
           .child(btn("copy", done ? "check" : "copy", done ? "Copied" : "Copy", (_e, cx) => this.copyOut(p.code, id, cx)))
           .child(con
             ? btn("play", this.ran === id ? "check" : "play", this.ran === id ? `Sent to ${conName}` : `Run in ${conName} (${con.terminal})`, (_e, cx) => this.runInConsole(con, p.code, id, cx))
@@ -835,7 +842,7 @@ export default class Chat extends View {
   }
 
   markdownTable(id, table, t) {
-    return renderTable(id, table, t, settings().dark, (key, text) => this.markdown(key, text));
+    return renderTable(id, table, t, settings().dark, (key, text) => this.markdown(key, text), fsz(13));
   }
 
   // The command or tool running now, with its output so far, as the terminal
@@ -849,10 +856,10 @@ export default class Chat extends View {
     return v_flex().w_full().gap(6).px(12).py(9).rounded(10).border_1().border_color(t.border).bg(t.surface)
       .child(h_flex().h(20).gap(8).items_center()
         .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().when(Boolean(mono), (d) => d.font_family(mono)).child(r.title))
-        .when(Boolean(r.time), (el) => el.child(div().flex_none().text_size(11.5).text_color(t.dim).child(r.time))))
+        .child(div().flex_1().min_w(0).truncate().text_size(fsz(12.5)).font_medium().when(Boolean(mono), (d) => d.font_family(mono)).child(r.title))
+        .when(Boolean(r.time), (el) => el.child(div().flex_none().text_size(fsz(11.5)).text_color(t.dim).child(r.time))))
       .child(v_flex().h(LINES * LH + 12).px(10).py(6).rounded(6).bg(t.background).overflow_hidden().justify_end()
-        .text_size(11.5).text_color(t.muted).when(Boolean(mono), (d) => d.font_family(mono))
+        .text_size(fsz(11.5)).text_color(t.muted).when(Boolean(mono), (d) => d.font_family(mono))
         .children(out.map((l) => div().h(LH).flex_none().truncate().child(l || " "))));
   }
 
@@ -1058,7 +1065,7 @@ export default class Chat extends View {
     const ROWS = 8;
     const start = Math.max(0, Math.min(e.sel - Math.floor(ROWS / 2), e.items.length - ROWS));
     return h_flex().w_full().max_w(900).child(v_flex().id("mention-menu").w(520).p(6).gap(1).rounded(14).border_1().border_color(t.border).bg(t.popover).shadow_md()
-      .child(div().px(10).pt(4).pb(4).text_size(11).font_semibold().text_color(t.dim).child(e.loading && !e.items.length ? "Looking for files…" : e.query ? `Files matching "${e.query}"` : "Files in this project"))
+      .child(div().px(10).pt(4).pb(4).text_size(fsz(11)).font_semibold().text_color(t.dim).child(e.loading && !e.items.length ? "Looking for files…" : e.query ? `Files matching "${e.query}"` : "Files in this project"))
       .children(e.items.slice(start, start + ROWS).map((p, n) => {
         const i = start + n, dir = p.endsWith("/");
         const parts = p.replace(/\/$/, "").split("/"), base = parts.pop(), where = parts.join("/");
@@ -1068,10 +1075,10 @@ export default class Chat extends View {
           .on_mouse_down("left", (_ev, cx) => cx.stop_propagation())
           .on_click((_ev, cx) => this.pickMention(p, cx))
           .child(svg(`mods/files/${dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.dim))
-          .child(div().flex_none().text_size(13).text_color(t.foreground).child(base + (dir ? "/" : "")))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(where));
+          .child(div().flex_none().text_size(fsz(13)).text_color(t.foreground).child(base + (dir ? "/" : "")))
+          .child(div().flex_1().min_w(0).truncate().text_size(fsz(12)).text_color(t.dim).child(where));
       }))
-      .child(div().px(10).pt(4).pb(2).text_size(11).text_color(t.dim).child("↑↓ choose · Tab or Enter pick · Esc close")));
+      .child(div().px(10).pt(4).pb(2).text_size(fsz(11)).text_color(t.dim).child("↑↓ choose · Tab or Enter pick · Esc close")));
   }
 
   emojiView(t) {
@@ -1079,7 +1086,7 @@ export default class Chat extends View {
     const ROWS = 8;
     const start = Math.max(0, Math.min(e.sel - Math.floor(ROWS / 2), e.items.length - ROWS));
     return h_flex().w_full().max_w(900).child(v_flex().id("emoji-menu").w(380).p(6).gap(1).rounded(14).border_1().border_color(t.border).bg(t.popover).shadow_md()
-      .child(div().px(10).pt(4).pb(4).text_size(11).font_semibold().text_color(t.dim).child(`Emoji matching ":${e.query}"`))
+      .child(div().px(10).pt(4).pb(4).text_size(fsz(11)).font_semibold().text_color(t.dim).child(`Emoji matching ":${e.query}"`))
       .children(e.items.slice(start, start + ROWS).map((x, n) => {
         const i = start + n;
         return h_flex().id(`emo-${i}`).px(10).py(5).gap(10).rounded(8).items_center().cursor_pointer()
@@ -1087,10 +1094,10 @@ export default class Chat extends View {
           .on_hover((on, cx) => { if (on && e.sel !== i) { e.sel = i; cx.notify(); } })
           .on_mouse_down("left", (_ev, cx) => cx.stop_propagation())
           .on_click((_ev, cx) => this.pickEmoji(x, cx))
-          .child(div().w(24).flex_none().text_size(18).child(x.char))
-          .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(i === e.sel ? t.foreground : t.muted).child(`:${x.name}:`));
+          .child(div().w(24).flex_none().text_size(fsz(18)).child(x.char))
+          .child(div().flex_1().min_w(0).truncate().text_size(fsz(13)).text_color(i === e.sel ? t.foreground : t.muted).child(`:${x.name}:`));
       }))
-      .child(div().px(10).pt(4).pb(2).text_size(11).text_color(t.dim).child("↑↓ choose · Tab or Enter pick · Esc close")));
+      .child(div().px(10).pt(4).pb(2).text_size(fsz(11)).text_color(t.dim).child("↑↓ choose · Tab or Enter pick · Esc close")));
   }
 
   // The panel takes the keys while the message box is empty.
@@ -1505,19 +1512,19 @@ export default class Chat extends View {
     const S = this.side;
     const w = Math.round(Math.min(420, Math.max(300, (this.width + 360) * 0.36)));
     const bubble = (x, i) => v_flex().gap(8)
-      .child(h_flex().w_full().justify_end().child(div().max_w(w - 70).px(12).py(8).rounded(14).bg(t.raised).text_size(12.5).child(x.q)))
+      .child(h_flex().w_full().justify_end().child(div().max_w(w - 70).px(12).py(8).rounded(14).bg(t.raised).text_size(fsz(12.5)).child(x.q)))
       .child(x.pending
-        ? h_flex().gap(8).items_center().text_size(12).text_color(t.muted).child(div().text_color(t.working).frames(SPINNER, 90)).child("Thinking…")
-        : x.error ? div().text_size(12).text_color(t.blocked).child(x.error)
-        : div().text_size(12.5).child(this.markdown(`side-${i}`, x.a)));
+        ? h_flex().gap(8).items_center().text_size(fsz(12)).text_color(t.muted).child(div().text_color(t.working).frames(SPINNER, 90)).child("Thinking…")
+        : x.error ? div().text_size(fsz(12)).text_color(t.blocked).child(x.error)
+        : div().text_size(fsz(12.5)).child(this.markdown(`side-${i}`, x.a)));
     const content = v_flex().id("side-content").absolute().left(0).right(0).bottom(-S.off).px(14).py(14).gap(18)
       .on_size_change((size, cx) => { S.contentH = size.height; S.off = Math.max(0, Math.min(S.off, S.contentH - S.viewH)); cx.notify(); })
-      .when(S.items.length === 0, (el) => el.child(v_flex().gap(6).py(20).items_center().text_size(12).text_color(t.dim)
+      .when(S.items.length === 0, (el) => el.child(v_flex().gap(6).py(20).items_center().text_size(fsz(12)).text_color(t.dim)
         .child("Ask a quick question about this conversation.")
         .child("The agent keeps working; nothing here is added to its chat.")))
       .children(S.items.map(bubble));
     return v_flex().id("side").flex_none().w(w).h_full().border_l(1).border_color(t.border).bg(t.background)
-      .child(h_flex().h(34).px(12).gap(8).items_center().border_b(1).border_color(t.border).bg(t.chrome).text_size(12)
+      .child(h_flex().h(34).px(12).gap(8).items_center().border_b(1).border_color(t.border).bg(t.chrome).text_size(fsz(12))
         .child(div().font_semibold().child("Side chat"))
         .child(div().flex_1().text_color(t.dim).child(shortcut(";")))
         .when(S.items.length > 0, (el) => el.child(div().id("side-clear").px(6).py(2).rounded(5).cursor_pointer().text_color(t.muted)
@@ -1529,7 +1536,7 @@ export default class Chat extends View {
         .on_scroll_wheel((e, cx) => { S.off = Math.max(0, Math.min(S.off + e.delta.y, S.contentH - S.viewH)); cx.notify(); })
         .child(content))
       .child(div().p(10).child(v_flex().rounded(14).border_1().border_color(t.border).bg(t.background)
-        .child(Textarea.new(this.sideInput).w_full().px(12).py(9).border_0().bg(t.background).text_size(12.5).text_color(t.foreground))));
+        .child(Textarea.new(this.sideInput).w_full().px(12).py(9).border_0().bg(t.background).text_size(fsz(12.5)).text_color(t.foreground))));
   }
 
   // The terminal's own picker or panel, shown in the chat while it's open: its
@@ -1586,7 +1593,7 @@ export default class Chat extends View {
     // Gone at once on Esc; back if the picker only stepped back a level.
     if (!P || (!P.seen && P.maybe) || (P.closing && Date.now() - P.closing < 1500)) return null;
     const mono = settings().font_family;
-    const key = (k, label) => div().id(`pk-${k}`).px(9).py(4).rounded(6).cursor_pointer().bg(t.raised).text_size(12)
+    const key = (k, label) => div().id(`pk-${k}`).px(9).py(4).rounded(6).cursor_pointer().bg(t.raised).text_size(fsz(12))
       .hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { this.panelKeys(k); cx.notify(); }).child(label);
     // The dialog's own lines: from the last rule above the bottom of the screen.
@@ -1602,7 +1609,7 @@ export default class Chat extends View {
       .border_1().border_color(t.accent).bg(t.popover).shadow_md()
       .child(h_flex().gap(8).items_center()
         .child(svg("mods/chat/icons/terminal.svg").size(14).text_color(t.dim))
-        .child(div().flex_1().text_size(12.5).font_semibold().child(P.seen ? `${P.command} · in the terminal` : `${P.command} · opening…`))
+        .child(div().flex_1().text_size(fsz(12.5)).font_semibold().child(P.seen ? `${P.command} · in the terminal` : `${P.command} · opening…`))
         .child(this.button("panel-term", "Show terminal", (_e, cx) => this.showTerminal(cx), t))
         .child(this.button("panel-close", "Close", (_e, cx) => { this.panelKeys("esc"); this.panel = null; cx.notify(); }, t)))
       .when(Boolean(q), (el) => el
@@ -1621,25 +1628,25 @@ export default class Chat extends View {
               }
               cx.notify();
             })
-            .when(Boolean(q.multi && q.boxes?.[n]), (row) => row.child(div().flex_none().text_size(13)
+            .when(Boolean(q.multi && q.boxes?.[n]), (row) => row.child(div().flex_none().text_size(fsz(13))
               .text_color(q.checked?.[n] ? t.accent : t.dim).child(q.checked?.[n] ? "☑" : "☐")))
-            .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(o)))))
+            .child(div().flex_1().min_w(0).truncate().text_size(fsz(12.5)).child(o)))))
         .when(hasCustom && Boolean(this.promptInput), (row) => row.child(h_flex().gap(6).items_center()
-          .child(div().flex_1().child(Input.new(this.promptInput).text_size(12.5)))
+          .child(div().flex_1().child(Input.new(this.promptInput).text_size(fsz(12.5))))
           .child(this.button("po-custom-send", "Send", (_e, cx) => {
             const v = this.promptInput.value().trim();
             if (!v) return;
             this.promptInput.set_value("");
             this.submitCustomPrompt(v, cx);
           }, t)))))
-      .when(!q && shown.length > 0, (el) => el.child(div().id("panel-screen").max_h(360).overflow_y_scrollbar().text_size(11.5).text_color(t.foreground)
+      .when(!q && shown.length > 0, (el) => el.child(div().id("panel-screen").max_h(360).overflow_y_scrollbar().text_size(fsz(11.5)).text_color(t.foreground)
         .when(Boolean(mono), (d) => d.font_family(mono))
         .child(this.markdown("panel-screen", "~~~~text\n" + shown.join("\n") + "\n~~~~"))))
       .child(h_flex().gap(6).flex_wrap().items_center()
         .child(key("up", "↑")).child(key("down", "↓")).child(key("left", "←")).child(key("right", "→"))
         .child(key("tab", "Tab")).child(key("space", "Space")).child(key("enter", "Enter")).child(key("esc", "Esc"))
         .child(div().flex_1())
-        .child(div().text_size(11).text_color(t.dim).child("With the message box empty, arrows, Tab, Enter and Esc go to it"))));
+        .child(div().text_size(fsz(11)).text_color(t.dim).child("With the message box empty, arrows, Tab, Enter and Esc go to it"))));
   }
 
   setTerm(address, cx) {
@@ -2190,14 +2197,14 @@ export default class Chat extends View {
       .children(items.map(item => v_flex().id(`failed-send-${item.id}`).w_full().gap(5).px(12).py(9)
         .rounded(10).border_1().border_color(t.blocked).bg(t.background)
         .child(h_flex().gap(8).items_center()
-          .child(div().flex_1().text_size(12).text_color(t.blocked).child("Failed to send"))
+          .child(div().flex_1().text_size(fsz(12)).text_color(t.blocked).child("Failed to send"))
           .child(this.button(`retry-send-${item.id}`, "Retry", (_e, cx) => this.pumpOutbox(cx, item.id), t)
             .when(Boolean(this.outbox.retryReason(context, item.id)), button => button.opacity(0.4)))
           .child(this.button(`remove-failed-${item.id}`, "Remove", (_e, cx) => { this.outbox.remove(item.id); this.saveOutbox(); cx.notify(); }, t)))
-        .child(div().truncate().text_size(12.5).text_color(t.foreground).tooltip(item.text).child(summaryLine(item.text)))
-        .when(item.attachments.length > 0, row => row.child(div().text_size(11).text_color(t.muted)
+        .child(div().truncate().text_size(fsz(12.5)).text_color(t.foreground).tooltip(item.text).child(summaryLine(item.text)))
+        .when(item.attachments.length > 0, row => row.child(div().text_size(fsz(11)).text_color(t.muted)
           .child(`${item.attachments.length} ${item.attachments.length === 1 ? "attachment" : "attachments"}`)))
-        .child(div().text_size(11).text_color(t.muted).child(this.outbox.retryReason(context, item.id) ?? item.error)))));
+        .child(div().text_size(fsz(11)).text_color(t.muted).child(this.outbox.retryReason(context, item.id) ?? item.error)))));
   }
 
   outboxView(t, inline = false) {
@@ -2209,10 +2216,10 @@ export default class Chat extends View {
     const height = Math.min(240, this.outboxHeight ?? items.length * 80);
     const offset = Math.max(0, Math.min(this.outboxOffset ?? 0, (this.outboxHeight ?? height) - height));
     const toggle = h_flex().id("outbox-toggle").px(12).py(inline ? 2 : 9).gap(8).items_center().justify_end()
-      .cursor_pointer().text_size(12).text_color(hasError ? t.blocked : t.muted).hover(style => style.text_color(t.foreground))
+      .cursor_pointer().text_size(fsz(12)).text_color(hasError ? t.blocked : t.muted).hover(style => style.text_color(t.foreground))
       .on_click((_e, cx) => { this.outboxExpanded = !expanded; this.outboxHovered = null; cx.notify(); })
       .child(hasError ? `${items.length} queued · delivery failed` : `${items.length} queued`)
-      .child(div().text_size(11).child(expanded ? "▴" : "▾"));
+      .child(div().text_size(fsz(11)).child(expanded ? "▴" : "▾"));
     if (inline && !expanded) return toggle.flex_none();
     return h_flex().w_full().justify_center().child(v_flex().id("outbox").w_full().max_w(900)
       .rounded(18).overflow_hidden()
@@ -2240,18 +2247,18 @@ export default class Chat extends View {
                 cx.notify();
               })
               .child(v_flex().flex_1().min_w(0).items_end().gap(4)
-                .when(Boolean(item.text), row => row.child(div().text_right().text_size(13).child(item.text)))
+                .when(Boolean(item.text), row => row.child(div().text_right().text_size(fsz(13)).child(item.text)))
                 .when(item.attachments.length > 0, row => row.child(h_flex().gap(6).flex_wrap().justify_end()
                   .children(item.attachments.map(file => file.image ? this.img(file.image.ref, t, 96, 64)
-                    : div().text_size(11).text_color(t.muted).child(file.name)))))
-                .when(paused || item.state === "sending", row => row.child(div().text_size(11).text_color(t.dim)
+                    : div().text_size(fsz(11)).text_color(t.muted).child(file.name)))))
+                .when(paused || item.state === "sending", row => row.child(div().text_size(fsz(11)).text_color(t.dim)
                   .child(paused ? "Paused · different session" : "Sending…")))
-                .when(Boolean(item.error), row => row.child(div().text_right().text_size(11).text_color(t.blocked).child(item.error))))
+                .when(Boolean(item.error), row => row.child(div().text_right().text_size(fsz(11)).text_color(t.blocked).child(item.error))))
               // Reserve the action gutter so hover never reflows the message.
               .child(h_flex().w(90).h(18).flex_none().gap(4).items_center().justify_end()
                 .when(hovered && item.state !== "sending", row => row
                   .child(div().id(`outbox-send-${item.id}`).flex_none().h(18).px(8).rounded_full().border_1().border_color(item.state === "error" ? t.blocked : t.input)
-                    .flex().items_center().justify_center().cursor_pointer().text_size(10).text_color(t.foreground)
+                    .flex().items_center().justify_center().cursor_pointer().text_size(fsz(10)).text_color(t.foreground)
                     .hover(style => style.border_color(t.accent).text_color(t.accent))
                     .on_click((_e, cx) => this.pumpOutbox(cx, item.id)).child(item.state === "error" ? "Retry" : "Instant")
                     .when(unavailable, button => button.opacity(0.4)))
@@ -2336,7 +2343,7 @@ export default class Chat extends View {
       .child(this.entry({ kind: "user", key: `pending-${p.at}-${i}`, text: p.text,
         images: attachments.filter(file => file.image).map(file => file.image),
         files: attachments.filter(file => !file.image).map(file => ({ path: file.path, name: file.name, bytes: null })) }, t, false))
-      .child(h_flex().gap(4).items_center().text_size(11.5).text_color(t.dim)
+      .child(h_flex().gap(4).items_center().text_size(fsz(11.5)).text_color(t.dim)
         // Codex doesn't queue: a message sent while it works goes straight into
         // the running turn as guidance, so there's nothing to send now or edit.
         .child(div().pr(4).child(p.delivering
@@ -2725,13 +2732,13 @@ export default class Chat extends View {
   // ---- drawing ----
 
   chip(id, label, selected, action, t) {
-    return div().id(id).px(10).py(5).rounded(8).cursor_pointer().text_size(12).border_1()
+    return div().id(id).px(10).py(5).rounded(8).cursor_pointer().text_size(fsz(12)).border_1()
       .border_color(selected ? t.accent : t.border).bg(selected ? t.selected : t.surface)
       .text_color(selected ? t.foreground : t.muted).hover((s) => s.bg(t.hover)).on_click(action).child(label);
   }
 
   button(id, text, action, t, primary) {
-    return div().id(id).flex_none().px(10).py(5).rounded(8).cursor_pointer().text_size(12)
+    return div().id(id).flex_none().px(10).py(5).rounded(8).cursor_pointer().text_size(fsz(12))
       .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground)
       .hover((s) => s.opacity(0.85)).on_click(action).child(text);
   }
@@ -2740,7 +2747,7 @@ export default class Chat extends View {
     const c = this.images[ref];
     if (!c || typeof c === "string") {
       return div().w(120).h(80).rounded(8).bg(t.raised).flex().items_center().justify_center()
-        .text_size(11).text_color(t.dim).child(c === "failed" ? "image" : "…");
+        .text_size(fsz(11)).text_color(t.dim).child(c === "failed" ? "image" : "…");
     }
     const k = Math.min(1, maxW / c.w, maxH / c.h);
     const width = Math.round(c.w * k), height = Math.round(c.h * k);
@@ -2789,16 +2796,16 @@ export default class Chat extends View {
     if (!parts.some(part => part.table)) return raw(id, text);
     const t = theme();
     return v_flex().w_full().gap(8).children(parts.map((part, index) => part.table
-      ? renderTable(`${id}-${index}`, part.table, t, settings().dark, raw)
+      ? renderTable(`${id}-${index}`, part.table, t, settings().dark, raw, fsz(13))
       : raw(`${id}-${index}`, part.md)));
   }
 
   attachmentPreview(attachment, index, t) {
     return div().relative()
       .child(attachment.image ? this.img(attachment.image.ref, t, 144, 108)
-        : div().px(10).py(8).rounded(8).bg(t.raised).text_size(11.5).child(attachment.name))
+        : div().px(10).py(8).rounded(8).bg(t.raised).text_size(fsz(11.5)).child(attachment.name))
       .child(div().id(`rm-${index}`).absolute().top(-6).right(-6).size(18).rounded_full().flex().items_center().justify_center()
-        .bg(t.foreground).text_color(t.background).text_size(11).cursor_pointer().hover(style => style.opacity(0.8))
+        .bg(t.foreground).text_color(t.background).text_size(fsz(11)).cursor_pointer().hover(style => style.opacity(0.8))
         .on_mouse_down("left", (_event, cx) => cx.stop_propagation())
         .on_click((_event, cx) => {
           cx.stop_propagation();
@@ -2810,8 +2817,8 @@ export default class Chat extends View {
   entry(e, t, last, nextKind = null) {
     if (e.kind === "error") return v_flex().w_full().gap(6).px(12).py(10).rounded(10)
       .border_1().border_color(t.blocked).bg(t.surface)
-      .child(div().text_size(12.5).font_semibold().text_color(t.blocked).child(e.usage ? "Usage limit reached" : "Agent error"))
-      .child(div().text_size(13).child(this.markdown(`error-${e.key}`, e.text)));
+      .child(div().text_size(fsz(12.5)).font_semibold().text_color(t.blocked).child(e.usage ? "Usage limit reached" : "Agent error"))
+      .child(div().text_size(fsz(13)).child(this.markdown(`error-${e.key}`, e.text)));
     if (e.kind === "changes") return this.changeBlock(e, t);
     if (e.kind === "user") {
       // Let actual text layout size the bubble, capped by the panel width.
@@ -2821,17 +2828,17 @@ export default class Chat extends View {
       // again) under the bubble, in a row that's always there.
       const on = this.hovered === e.key && Boolean(e.text);
       return v_flex().id(`row-${e.key}`).w_full().items_end().gap(4).on_hover(this.hover(e.key))
-        .when(Boolean(e.from), (el) => el.child(div().text_size(11).text_color(t.dim).child(`hc · ${e.from}`)))
+        .when(Boolean(e.from), (el) => el.child(div().text_size(fsz(11)).text_color(t.dim).child(`hc · ${e.from}`)))
         .when(e.images.length > 0, el => el.child(h_flex().max_w(max).flex_wrap().justify_end().gap(6)
           .children(e.images.map(i => this.img(i.ref, t, Math.min(160, max), 112)))))
         .when(Boolean(e.files?.length), el => el.child(h_flex().max_w(max).flex_wrap().justify_end().gap(6)
           .children(e.files.map(file => h_flex().max_w(max).min_w(0).gap(8).px(12).py(8).rounded(8).bg(t.raised).tooltip(file.path)
             .child(svg("mods/chat/icons/attachment.svg").size(16).flex_none().text_color(t.muted))
             .child(v_flex().min_w(0).gap(2)
-              .child(div().truncate().text_size(12).child(file.name))
-              .when(Number.isFinite(file.bytes), el => el.child(div().text_size(10.5).text_color(t.dim)
+              .child(div().truncate().text_size(fsz(12)).child(file.name))
+              .when(Number.isFinite(file.bytes), el => el.child(div().text_size(fsz(10.5)).text_color(t.dim)
                 .child(file.bytes < 1024 ? `${file.bytes} B` : `${Math.round(file.bytes / 1024)} KB`))))))))
-        .when(Boolean(e.text), el => el.child(v_flex().w_auto().max_w(max).min_w(0).flex_none().px(14).py(10).rounded(14).bg(settings().dark ? "#4e3087" : "#ede5fa").text_size(14).line_height("22px")
+        .when(Boolean(e.text), el => el.child(v_flex().w_auto().max_w(max).min_w(0).flex_none().px(14).py(10).rounded(14).bg(settings().dark ? "#4e3087" : "#ede5fa").text_size(fsz(14)).line_height(lh(22))
           .child(this.markdown(e.key, emojify(e.text)))))
         .child(h_flex().h(24).gap(4).when(on, (el) => el
           .child(this.tinyButton(`copyu-${e.key}`, this.copied === `u-${e.key}` ? "check" : "copy", "Copy", (_e, cx) => this.copyOut(e.text, `u-${e.key}`, cx), t))
@@ -2839,7 +2846,7 @@ export default class Chat extends View {
     }
     if (e.kind === "assistant") {
       // On hover, Copy for the whole reply, in a row under it that's always there.
-      return v_flex().id(`row-${e.key}`).w_full().relative().gap(6).text_size(14.5).line_height("24px").on_hover(this.hover(e.key))
+      return v_flex().id(`row-${e.key}`).w_full().relative().gap(6).text_size(fsz(14.5)).line_height(lh(24)).on_hover(this.hover(e.key))
         .child(this.reply(e, t))
         .when(nextKind !== "tools" && nextKind !== "changes", row => row.child(this.replyCopy(e, t)));
     }
@@ -2847,7 +2854,7 @@ export default class Chat extends View {
     if (e.kind === "notice") {
       const at = new Date(e.timestamp);
       const time = Number.isFinite(at.getTime()) ? `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}` : null;
-      return h_flex().w_full().gap(5).py(2).items_center().text_size(11.5).text_color(t.dim)
+      return h_flex().w_full().gap(5).py(2).items_center().text_size(fsz(11.5)).text_color(t.dim)
         .child(div().min_w(0).truncate().tooltip(e.detail ?? e.text).child(e.text))
         .when(Boolean(time), el => el.child(div().flex_none().child(`· ${time}`)));
     }
@@ -2857,14 +2864,14 @@ export default class Chat extends View {
     if (e.kind === "note") {
       const text = e.text.length > 400 ? e.text.slice(0, 400) + "…" : e.text;
       const note = h_flex().w_full().justify_center().child(
-        h_flex().gap(8).px(10).py(3).rounded(8).bg(t.surface).text_size(11.5).text_color(t.dim).child(text)
+        h_flex().gap(8).px(10).py(3).rounded(8).bg(t.surface).text_size(fsz(11.5)).text_color(t.dim).child(text)
           .when(Boolean(e.summary), (el) => el.child(div().id(`sum-${e.key}`).cursor_pointer().text_color(t.accent)
             .hover((s) => s.underline())
             .on_click((_e, cx) => { this.summaryOpen = this.summaryOpen === e.key ? null : e.key; cx.notify(); })
             .child(this.summaryOpen === e.key ? "Hide summary" : "Show summary"))));
       if (!e.summary || this.summaryOpen !== e.key) return note;
       return v_flex().w_full().gap(8).child(note).child(div().w_full().px(16).py(12).rounded(12).border_1()
-        .border_color(t.border).bg(t.surface).text_size(13).child(this.markdown(`summary-${e.key}`, e.summary)));
+        .border_color(t.border).bg(t.surface).text_size(fsz(13)).child(this.markdown(`summary-${e.key}`, e.summary)));
     }
     return this.tools(e, t, last);
   }
@@ -2882,9 +2889,9 @@ export default class Chat extends View {
         .hover(s => s.text_color(t.muted))
         .on_click((_e, cx) => this.toggleCard(id, cx, open))
         .child(svg(`mods/chat/icons/${open ? "chevron-down" : "chevron"}.svg`).size(12).flex_none())
-        .child(div().flex_none().text_size(12).child(working ? "Thinking…" : "Thought process"))
-        .when(!open, el => el.child(div().flex_1().min_w(0).truncate().text_size(12).child(summaryLine(e.text)))))
-      .when(open, el => el.child(div().mt(4).pl(12).border_l(2).border_color(t.border).text_size(12.5).line_height("20px").text_color(t.muted)
+        .child(div().flex_none().text_size(fsz(12)).child(working ? "Thinking…" : "Thought process"))
+        .when(!open, el => el.child(div().flex_1().min_w(0).truncate().text_size(fsz(12)).child(summaryLine(e.text)))))
+      .when(open, el => el.child(div().mt(4).pl(12).border_l(2).border_color(t.border).text_size(fsz(12.5)).line_height(lh(20)).text_color(t.muted)
         .child(this.markdown(`think-md-${e.key}`, e.text))));
   }
 
@@ -2905,13 +2912,13 @@ export default class Chat extends View {
     const short = !long && lines.length <= 2;
     return v_flex().w_full().min_w(0).gap(4)
       .child(div().w_full().min_w(0)
-        .text_size(!framed ? 12 : short ? 12.5 : 11.5).text_color(error ? t.blocked : t.muted)
+        .text_size(fsz(!framed ? 12 : short ? 12.5 : 11.5)).text_color(error ? t.blocked : t.muted)
         .when(error || (!short && framed), el => el.px(12).py(8).rounded(8).bg(t.surface).border_1().border_color(error ? t.blocked : t.border))
         .when((!short || !framed) && Boolean(settings().font_family), el => el.font_family(settings().font_family))
         .child(TextView.html(id, `<pre>${escaped}</pre>`).selectable(true).text_color(error ? t.blocked : t.muted)
           .when((!short || !framed) && Boolean(settings().font_family), el => el.font_family(settings().font_family))
-          .when(!framed, el => el.text_size(12).line_height("18px"))))
-      .when(long, el => el.child(div().id(`expand-${id}`).w_auto().flex_none().text_size(11.5).text_color(t.dim).cursor_pointer()
+          .when(!framed, el => el.text_size(fsz(12)).line_height(lh(18)))))
+      .when(long, el => el.child(div().id(`expand-${id}`).w_auto().flex_none().text_size(fsz(11.5)).text_color(t.dim).cursor_pointer()
         .hover(style => style.text_color(t.foreground))
         .on_click((_event, cx) => { this.toggleCard(`output-${id}`, cx, open); })
         .child(open ? "Show less" : "Show more")));
@@ -2920,27 +2927,27 @@ export default class Chat extends View {
   // The context, status and usage cards, as the Claude app draws them.
   card(e, t) {
     const box = (title, sub) => v_flex().w_full().max_w(620).p(14).gap(10).rounded(12).border_1().border_color(t.border).bg(t.surface)
-      .child(h_flex().gap(8).items_baseline().child(div().text_size(13).font_semibold().child(title))
-        .when(Boolean(sub), (el) => el.child(div().text_size(12).text_color(t.dim).child(sub))));
+      .child(h_flex().gap(8).items_baseline().child(div().text_size(fsz(13)).font_semibold().child(title))
+        .when(Boolean(sub), (el) => el.child(div().text_size(fsz(12)).text_color(t.dim).child(sub))));
     const bar = (pct, color) => div().w_full().h(6).rounded(3).bg(t.raised)
       .child(div().h_full().rounded(3).bg(color).w(`${Math.max(0, Math.min(100, pct))}%`));
-    const row = (k, v) => h_flex().gap(12).text_size(12.5).child(div().w(110).flex_none().text_color(t.muted).child(k)).child(div().flex_1().min_w(0).child(String(v)));
+    const row = (k, v) => h_flex().gap(12).text_size(fsz(12.5)).child(div().w(110).flex_none().text_color(t.muted).child(k)).child(div().flex_1().min_w(0).child(String(v)));
     if (e.loading) return box(e.title ?? (e.card === "usage" ? "Usage" : e.card === "status" ? "Status" : "Context"))
-      .child(h_flex().gap(8).text_size(12).text_color(t.muted).child(div().text_color(t.working).frames(SPINNER, 90)).child("Asking Claude…"));
-    if (e.error) return box(e.title ?? "Usage").child(div().text_size(12).text_color(t.blocked).child(e.error));
+      .child(h_flex().gap(8).text_size(fsz(12)).text_color(t.muted).child(div().text_color(t.working).frames(SPINNER, 90)).child("Asking Claude…"));
+    if (e.error) return box(e.title ?? "Usage").child(div().text_size(fsz(12)).text_color(t.blocked).child(e.error));
     if (e.card === "context") {
       const COLORS = { "System prompt": t.dim, "System tools": t.muted, "MCP tools": t.ansi2, "MCP server instructions": t.ansi2, "Memory files": t.ansi3,
         "Skills": t.ansi5, "Messages": t.accent, "Custom agents": t.ansi6, "Free space": t.raised, "Autocompact buffer": t.border };
       const used = e.cats.filter((c) => !/deferred|free space|autocompact/i.test(c.name));
       const rest = e.cats.filter((c) => /free space|autocompact/i.test(c.name));
-      const line = (c) => h_flex().gap(10).items_center().text_size(12.5)
+      const line = (c) => h_flex().gap(10).items_center().text_size(fsz(12.5))
         .child(div().size(9).rounded(3).flex_none().bg(COLORS[c.name] ?? t.ansi4))
         .child(div().flex_1().text_color(/free|autocompact/i.test(c.name) ? t.muted : t.foreground).child(c.name))
         .child(div().w(60).flex_none().text_color(t.muted).child(c.tokens))
         .child(div().w(48).flex_none().text_color(t.dim).child(`${c.pct}%`));
       return box("Context", e.model)
-        .child(h_flex().gap(8).items_baseline().child(div().text_size(20).font_semibold().child(`${e.pct ?? 0}%`))
-          .child(div().text_size(12).text_color(t.muted).child(`${e.used ?? "?"} of ${e.max ?? "?"} tokens used`)))
+        .child(h_flex().gap(8).items_baseline().child(div().text_size(fsz(20)).font_semibold().child(`${e.pct ?? 0}%`))
+          .child(div().text_size(fsz(12)).text_color(t.muted).child(`${e.used ?? "?"} of ${e.max ?? "?"} tokens used`)))
         .child(h_flex().w_full().h(8).rounded(4).overflow_hidden().bg(t.raised)
           .children(used.filter((c) => c.pct > 0).map((c) => div().h_full().bg(COLORS[c.name] ?? t.ansi4).w(`${Math.max(0.6, c.pct)}%`))))
         .child(v_flex().gap(5).children([...used, ...rest].map(line)));
@@ -2963,31 +2970,31 @@ export default class Chat extends View {
       .children(limits.map(([name, v]) => {
         const used = Math.max(0, Math.min(100, Math.round(v.utilization))), left = 100 - used;
         return v_flex().gap(4)
-          .child(h_flex().text_size(12.5).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${left}% left${v.resets_at ? ` · resets ${new Date(v.resets_at * (v.resets_at < 1e12 ? 1000 : 1)).toLocaleString()}` : ""}`)))
+          .child(h_flex().text_size(fsz(12.5)).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${left}% left${v.resets_at ? ` · resets ${new Date(v.resets_at * (v.resets_at < 1e12 ? 1000 : 1)).toLocaleString()}` : ""}`)))
           .child(bar(left, used >= 90 ? t.blocked : t.accent));
       }))
       .when(Boolean(rl.spend?.enabled), (el) => el.child(v_flex().gap(4)
-        .child(h_flex().text_size(12.5).child(div().flex_1().child("Usage credits")).child(div().text_color(t.muted).child(`${money(rl.spend.used)} of ${money(rl.spend.limit)} · ${rl.spend.percent}%`)))
+        .child(h_flex().text_size(fsz(12.5)).child(div().flex_1().child("Usage credits")).child(div().text_color(t.muted).child(`${money(rl.spend.used)} of ${money(rl.spend.limit)} · ${rl.spend.percent}%`)))
         .child(bar(rl.spend.percent, rl.spend.severity === "normal" ? t.accent : t.blocked))))
       .when(tips.length > 0, (el) => el.child(v_flex().gap(4).pt(2)
-        .child(div().text_size(11.5).font_semibold().text_color(t.dim).child("Today's tips"))
-        .children(tips.map((r) => div().text_size(12).text_color(t.muted).child(`${r.title}${r.detail ? ` — ${r.detail}` : ""}`)))));
+        .child(div().text_size(fsz(11.5)).font_semibold().text_color(t.dim).child("Today's tips"))
+        .children(tips.map((r) => div().text_size(fsz(12)).text_color(t.muted).child(`${r.title}${r.detail ? ` — ${r.detail}` : ""}`)))));
   }
 
   infoView(e, box, t) {
-    const small = (id, label, action) => div().id(id).flex_none().px(8).py(3).rounded(6).cursor_pointer().bg(t.raised).text_size(11.5)
+    const small = (id, label, action) => div().id(id).flex_none().px(8).py(3).rounded(6).cursor_pointer().bg(t.raised).text_size(fsz(11.5))
       .hover((s) => s.bg(t.hover)).on_click(action).child(label);
     const STATUS = { connected: t.done, on: t.done, failed: t.blocked, "needs login": t.blocked, disabled: t.dim, off: t.dim, pending: t.working };
     return box(e.title)
-      .when(Boolean(e.note), (el) => el.child(div().text_size(12).text_color(t.muted).child(e.note)))
+      .when(Boolean(e.note), (el) => el.child(div().text_size(fsz(12)).text_color(t.muted).child(e.note)))
       .children(e.sections.filter((x) => x.rows.length).map((sec, si) => v_flex().gap(2)
-        .when(Boolean(sec.title), (el) => el.child(div().pt(4).text_size(11).font_semibold().text_color(t.dim).child(sec.title)))
+        .when(Boolean(sec.title), (el) => el.child(div().pt(4).text_size(fsz(11)).font_semibold().text_color(t.dim).child(sec.title)))
         .children(sec.rows.slice(0, 80).map((r, ri) => h_flex().id(`info-${e.key}-${si}-${ri}`).px(8).py(6).gap(10).items_center().rounded(8)
           .when(Boolean(r.run), (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click(r.run))
           .child(v_flex().flex_1().min_w(0)
-            .child(div().text_size(12.5).font_medium().truncate().child(r.label))
-            .when(Boolean(r.detail), (el) => el.child(div().text_size(11.5).text_color(t.muted).truncate().child(r.detail))))
-          .when(Boolean(r.status), (el) => el.child(h_flex().flex_none().gap(5).items_center().text_size(11.5).text_color(t.muted)
+            .child(div().text_size(fsz(12.5)).font_medium().truncate().child(r.label))
+            .when(Boolean(r.detail), (el) => el.child(div().text_size(fsz(11.5)).text_color(t.muted).truncate().child(r.detail))))
+          .when(Boolean(r.status), (el) => el.child(h_flex().flex_none().gap(5).items_center().text_size(fsz(11.5)).text_color(t.muted)
             .child(div().size(7).rounded_full().bg(STATUS[r.status] ?? t.dim)).child(r.status)))
           .children((r.actions ?? []).map(([label, run], ai) => small(`ia-${e.key}-${si}-${ri}-${ai}`, label, run)))))))
       .when(e.buttons.length > 0, (el) => el.child(h_flex().gap(6).flex_wrap().pt(2)
@@ -3008,17 +3015,17 @@ export default class Chat extends View {
       .when(Boolean(ind), (el) => {
         const used = Number(ind.used), limit = Number(ind.limit), pct = limit ? Math.round(100 * used / limit) : 100 - (ind.remainingPercent ?? 0);
         return el.child(v_flex().gap(4)
-          .child(h_flex().text_size(12.5).child(div().flex_1().child("Spend limit"))
+          .child(h_flex().text_size(fsz(12.5)).child(div().flex_1().child("Spend limit"))
             .child(div().text_color(t.muted).child(`$${used.toFixed(2)} of $${limit.toFixed(2)} · ${pct}%${when(ind.resetsAt)}`)))
           .child(bar(pct, pct >= 90 ? t.blocked : t.accent)));
       })
       .children(windows.map(([name, w]) => {
         const used = Math.max(0, Math.min(100, Math.round(w.usedPercent ?? w.used_percent))), left = 100 - used;
         return v_flex().gap(4)
-          .child(h_flex().text_size(12.5).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${left}% left${when(w.resetsAt ?? w.resets_at)}`)))
+          .child(h_flex().text_size(fsz(12.5)).child(div().flex_1().child(name)).child(div().text_color(t.muted).child(`${left}% left${when(w.resetsAt ?? w.resets_at)}`)))
           .child(bar(left, used >= 90 ? t.blocked : t.accent));
       }))
-      .when(!l, (el) => el.child(div().text_size(12).text_color(t.muted).child("Codex didn't report its limits.")));
+      .when(!l, (el) => el.child(div().text_size(fsz(12)).text_color(t.muted).child("Codex didn't report its limits.")));
   }
 
   tools(e, t, last) {
@@ -3032,7 +3039,7 @@ export default class Chat extends View {
     const label = commands ? running ? "Running commands" : "Ran commands" : toolSummary(items, running);
     const thumbs = e.items.flatMap((i) => i.images);
     return v_flex().w_full().gap(6)
-      .child(h_flex().id(`tg-${e.key}`).gap(6).items_center().cursor_pointer().text_size(13).text_color(t.dim)
+      .child(h_flex().id(`tg-${e.key}`).gap(6).items_center().cursor_pointer().text_size(fsz(13)).text_color(t.dim)
         .hover((s) => s.text_color(t.muted))
         .on_click((_ev, cx) => { this.toggleCard(e.key, cx, open); })
         .child(svg(`mods/chat/icons/${commands ? "terminal" : "edit"}.svg`).size(14).flex_none())
@@ -3051,9 +3058,9 @@ export default class Chat extends View {
     return v_flex().w_full().min_w(0).gap(0).py(6).rounded(8).border_1().border_color(t.border).bg(t.background)
       .children(diffGroups(shown).map((group, index) => div().w_full().min_w(0).px(10)
         .child(TextView.html(`diff-${id}-${index}`, `<pre>${escape(group.text)}</pre>`).selectable(true)
-          .text_size(12).line_height("18px").text_color(colors[group.kind])
+          .text_size(fsz(12)).line_height(lh(18)).text_color(colors[group.kind])
           .when(Boolean(settings().font_family), el => el.font_family(settings().font_family)))))
-      .when(lines.length > 80, el => el.child(div().id(`diff-expand-${id}`).px(10).py(5).text_size(11.5).text_color(t.muted).cursor_pointer()
+      .when(lines.length > 80, el => el.child(div().id(`diff-expand-${id}`).px(10).py(5).text_size(fsz(11.5)).text_color(t.muted).cursor_pointer()
         .hover(style => style.text_color(t.foreground)).on_click((_event, cx) => this.toggleCard(`diff-more-${id}`, cx))
         .child(expanded ? "Show less" : `Show more (${lines.length - 80} lines)`)));
   }
@@ -3079,10 +3086,10 @@ export default class Chat extends View {
     const lines = diffLines(file), groups = diffGroups(lines);
     const content = v_flex().w(geometry.width).max_h(geometry.height).rounded(10).border_1().border_color(t.input).bg(t.popover).shadow_lg().overflow_hidden()
       .on_scroll_wheel((_event,cx) => cx.stop_propagation())
-      .child(div().h(36).flex_none().px(12).flex().items_center().text_size(12).font_semibold().child(file.path.split(/[\\/]/).at(-1)))
+      .child(div().h(36).flex_none().px(12).flex().items_center().text_size(fsz(12)).font_semibold().child(file.path.split(/[\\/]/).at(-1)))
       .child(v_flex().id(`hover-scroll-${id}`).h(Math.min(Math.max(64,geometry.height-38),Math.max(80,lines.length*18+16))).flex_none().overflow_y_scrollbar().py(8)
         .children(groups.map((group,index) => div().px(10).w_full().min_w(0).flex_none()
-          .child(TextView.html(`hover-diff-${id}-${index}`,`<pre>${escape(group.text)}</pre>`).selectable(true).text_size(12).line_height("18px").text_color(colors[group.kind])
+          .child(TextView.html(`hover-diff-${id}-${index}`,`<pre>${escape(group.text)}</pre>`).selectable(true).text_size(fsz(12)).line_height(lh(18)).text_color(colors[group.kind])
             .when(Boolean(settings().font_family),el=>el.font_family(settings().font_family))))));
     return HoverCard.new(`diff-hover-${id}`).w_auto().self_start().flex_none()
       .open_delay(250).close_delay(250).anchor(geometry.anchor).trigger(trigger).content(content);
@@ -3091,10 +3098,10 @@ export default class Chat extends View {
   changeBlock(entry, t) {
     const overview = changeOverview(entry.files), listKey = `file-list-${entry.key}`;
     const expanded = this.open.has(listKey), files = expanded ? entry.files : entry.files.slice(0,3);
-    const stats = (added,removed) => h_flex().gap(6).flex_none().text_size(12.5)
+    const stats = (added,removed) => h_flex().gap(6).flex_none().text_size(fsz(12.5))
       .when(added!=null,el=>el.child(div().text_color(t.done).child(`+${added}`)))
       .when(removed!=null,el=>el.child(div().text_color(t.ansi1).child(`−${removed}`)));
-    const title = div().id(`preview-change-${entry.key}`).w_auto().self_start().flex_none().truncate().text_size(14).font_semibold().cursor_pointer()
+    const title = div().id(`preview-change-${entry.key}`).w_auto().self_start().flex_none().truncate().text_size(fsz(14)).font_semibold().cursor_pointer()
       .when(entry.files.length===1,el=>el.hover(style=>style.text_color(t.accent)))
       .on_click((_event,cx)=>this.openChanges(entry,cx))
       .child(entry.files.length===1?`${entry.files[0].operation==='delete'?'Deleted':entry.files[0].operation==='add'?'Added':'Edited'} ${overview.labels[0]}`:`Edited ${entry.files.length} files`);
@@ -3110,7 +3117,7 @@ export default class Chat extends View {
         .child(stats(overview.added,overview.removed)))
       .child(div().id(`diff-toggle-${entry.key}`).flex_none().h(28).px(12).rounded_full().border(0.5)
         .border_color(settings().dark?t.input:t.border).flex().items_center().justify_center()
-        .cursor_pointer().text_size(12).text_color(t.foreground)
+        .cursor_pointer().text_size(fsz(12)).text_color(t.foreground)
         .hover(style=>style.text_color(t.accent)).on_click((_event,cx)=>this.openChanges(entry,cx)).child("View changes"));
     return v_flex().w_full().min_w(0).rounded(12).border(0.5).border_color(t.border).overflow_hidden()
       .on_size_change((size,cx)=>{this.changeWidths??={};if(this.changeWidths[entry.key]!==size.width){this.changeWidths[entry.key]=size.width;cx.notify();}})
@@ -3120,7 +3127,7 @@ export default class Chat extends View {
           const id=`${entry.key}-${index}`;
           const row=h_flex().id(`file-${id}`).px(12).py(8).gap(8).items_center()
             .when(index===files.length-1&&(entry.files.length<=3||expanded),el=>el.rounded_b(11))
-            .child(this.changeHover(id,div().w_auto().min_w(0).flex_none().truncate().text_size(13).cursor_pointer()
+            .child(this.changeHover(id,div().w_auto().min_w(0).flex_none().truncate().text_size(fsz(13)).cursor_pointer()
               .hover(style=>style.text_color(t.accent)).on_click((_event,cx)=>this.openChanges(entry,cx,index))
               .child(overview.labels[index]),file,entry.key,t))
             .child(div().flex_1())
@@ -3128,7 +3135,7 @@ export default class Chat extends View {
           return row;
         }))))
       .when(entry.files.length>3,el=>el.child(h_flex().id(`more-${entry.key}`).px(12).py(9).gap(8).items_center().border_t(settings().dark ? 1 : 0.5).border_color(t.border).rounded_b(11).cursor_pointer()
-        .hover(style=>style.bg(t.hover)).text_size(12.5).on_click((_event,cx)=>this.toggleCard(listKey,cx))
+        .hover(style=>style.bg(t.hover)).text_size(fsz(12.5)).on_click((_event,cx)=>this.toggleCard(listKey,cx))
         .child(expanded?"Show fewer files":`Show ${entry.files.length-3} more files`).child(div().child(expanded?"▴":"▾"))));
   }
 
@@ -3137,22 +3144,22 @@ export default class Chat extends View {
     const pendingOutput = item.sessionId != null && item.exitCode == null;
     return v_flex().w_full().min_w(0).mt(6).px(12).py(10).gap(8).rounded(12)
       .border(0.5).border_color(t.input).bg(t.surface)
-      .child(div().text_size(12).text_color(t.muted).child("Shell"))
+      .child(div().text_size(fsz(12)).text_color(t.muted).child("Shell"))
       .child(this.plainOutput(`${id}-command`, `$ ${command ?? ""}`, { ...t, muted: t.foreground }, false, false))
       .when(Boolean(item.result?.trim()), el => el.child(div().w_full().min_w(0).pt(8).border_t(1).border_color(t.border)
         .child(this.plainOutput(`${id}-shell-output`, item.result, t, false, false))))
-      .child(h_flex().justify_end().text_size(11.5).text_color(t.dim)
+      .child(h_flex().justify_end().text_size(fsz(11.5)).text_color(t.dim)
         .child(item.error ? `Finished${item.exitCode != null ? ` · exit ${item.exitCode}` : ""}`
           : running ? "Running…" : pendingOutput ? "Output pending" : item.result === null ? "Pending" : "✓ Success"));
   }
 
   planView(id, i, t) {
     return v_flex().id(`${id}-plan`).w_full().min_w(0).mt(6).px(12).py(10).gap(6).rounded(12).border(0.5).border_color(t.input).bg(t.surface)
-      .when(Boolean(i.planExplanation), el => el.child(div().text_size(12).text_color(t.muted).child(i.planExplanation)))
+      .when(Boolean(i.planExplanation), el => el.child(div().text_size(fsz(12)).text_color(t.muted).child(i.planExplanation)))
       .children(i.todos.map(todo => {
         const done = todo.status === "completed";
         const active = todo.status === "in_progress";
-        return h_flex().gap(8).items_center().text_size(12.5)
+        return h_flex().gap(8).items_center().text_size(fsz(12.5))
           .child(div().flex_none().w(14).text_color(done ? t.done : active ? t.accent : t.dim)
             .child(done ? "✓" : active ? "▸" : "○"))
           .child(div().flex_1().min_w(0)
@@ -3173,24 +3180,24 @@ export default class Chat extends View {
         .hover(style => i.name === "Bash" ? style.text_color(t.foreground) : style.bg(t.hover))
         .on_click((_event, cx) => { this.toggleCard(id, cx, open); })
         .child(svg(`mods/chat/icons/${i.name === "Edit" ? "edit" : i.name === "Bash" || i.name === "Wait" ? "terminal" : i.name === "Plan" ? "scroll" : /search|grep|glob/i.test(i.name) ? "search" : "plug"}.svg`).size(14).flex_none())
-        .child(div().flex_none().text_size(12.5).child(i.name === "Edit" ? i.error ? "Edit" : i.result === null ? "Editing" : "Edited" : i.name === "Bash" ? i.result === null ? "Running" : "Ran" : i.name))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(i.name === "Bash" ? commandPreview(i.displayInput ?? i.summary) : summaryLine(i.summary)))
+        .child(div().flex_none().text_size(fsz(12.5)).child(i.name === "Edit" ? i.error ? "Edit" : i.result === null ? "Editing" : "Edited" : i.name === "Bash" ? i.result === null ? "Running" : "Ran" : i.name))
+        .child(div().flex_1().min_w(0).truncate().text_size(fsz(12.5)).child(i.name === "Bash" ? commandPreview(i.displayInput ?? i.summary) : summaryLine(i.summary)))
         .when(i.changes?.length === 1 && i.changes[0].added != null && !i.error, el => el
-          .child(div().text_size(11.5).text_color(t.done).child(`+${i.changes[0].added}`))
-          .child(div().text_size(11.5).text_color(t.ansi1).child(`−${i.changes[0].removed ?? 0}`)))
-        .when(running, el => el.child(div().text_size(12).text_color(t.dim).frames(SPINNER, 90)))
-        .when(!running && i.result === null, el => el.child(div().text_size(11).text_color(t.dim).child("Pending")))
+          .child(div().text_size(fsz(11.5)).text_color(t.done).child(`+${i.changes[0].added}`))
+          .child(div().text_size(fsz(11.5)).text_color(t.ansi1).child(`−${i.changes[0].removed ?? 0}`)))
+        .when(running, el => el.child(div().text_size(fsz(12)).text_color(t.dim).frames(SPINNER, 90)))
+        .when(!running && i.result === null, el => el.child(div().text_size(fsz(11)).text_color(t.dim).child("Pending")))
         .child(svg(`mods/chat/icons/${open ? "chevron-down" : "chevron"}.svg`).size(12).flex_none()))
       .when(open && isPlan, el => el.child(this.planView(id, i, t)))
       .when(open && i.name === "Bash", el => el.child(this.shellDetails(id, i, t, running)))
       .when(open && !isPlan && i.name !== "Bash", el => el.child(v_flex().w_full().min_w(0).mt(6).px(12).py(10).gap(8)
         .rounded(12).border(0.5).border_color(t.input).bg(t.surface)
         .when(i.input != null, row => row.child(v_flex().gap(4)
-          .child(div().text_size(11).text_color(t.dim).child("Input"))
+          .child(div().text_size(fsz(11)).text_color(t.dim).child("Input"))
           .child(this.plainOutput(`${id}-input`, typeof i.displayInput === "string" ? i.displayInput
             : i.displayInput?.command ?? i.displayInput?.cmd ?? JSON.stringify(i.displayInput, null, 2), t, false, false))))
         .when(Boolean(i.result?.trim()), row => row.child(v_flex().gap(4)
-          .child(div().text_size(11).text_color(t.dim).child("Output"))
+          .child(div().text_size(fsz(11)).text_color(t.dim).child("Output"))
           .child(this.plainOutput(`${id}-result`, i.result, t, false, false))))
         .when(i.images.length > 0, row => row.child(h_flex().flex_wrap().gap(6)
           .children(i.images.map(image => this.img(image.ref, t, 420, 300)))))))
@@ -3207,11 +3214,11 @@ export default class Chat extends View {
   // Model and effort picks, for a new chat or the running one.
   modelChips(prefix, cat, model, effort, pick, t) {
     const efforts = cat?.models.find((m) => m.id === model)?.efforts ?? [];
-    const label = (text) => div().w(52).flex_none().pt(5).text_size(12).text_color(t.dim).child(text);
+    const label = (text) => div().w(52).flex_none().pt(5).text_size(fsz(12)).text_color(t.dim).child(text);
     return v_flex().gap(8)
       .child(h_flex().gap(8).items_start().child(label("Model"))
         .child(h_flex().flex_1().gap(6).flex_wrap()
-          .when(Boolean(cat?.loading), (el) => el.child(div().text_size(12).text_color(t.dim).child("…")))
+          .when(Boolean(cat?.loading), (el) => el.child(div().text_size(fsz(12)).text_color(t.dim).child("…")))
           .children((cat?.models ?? []).map((m) => this.chip(`${prefix}-m-${m.id}`, m.name, m.id === model, (_e, cx) => pick(m.id, null, cx), t)))))
       .when(efforts.length > 0, (el) => el.child(h_flex().gap(8).items_start().child(label("Effort"))
         .child(h_flex().flex_1().gap(6).flex_wrap()
@@ -3226,9 +3233,9 @@ export default class Chat extends View {
     const others = machines().filter((m) => m.name && m.layout === "ready").map((m) => m.name);
     const recent = (shared("chat.recent") ?? []).filter((r) => r.machine === machine && r.folder && r.folder !== folder);
     const running = terminals().filter((x) => agentKind(x) && x.state === "live");
-    const label = (text) => div().pt(6).text_size(12).font_semibold().text_color(t.muted).child(text);
+    const label = (text) => div().pt(6).text_size(fsz(12)).font_semibold().text_color(t.muted).child(text);
     const form = v_flex().w_full().max_w(640).gap(10)
-      .child(div().text_size(18).font_semibold().child(this.starting ? "Starting…" : "New chat"))
+      .child(div().text_size(fsz(18)).font_semibold().child(this.starting ? "Starting…" : "New chat"))
       .child(label("Agent"))
       .child(h_flex().gap(6).children(Object.entries(AGENTS).map(([k, name]) => this.chip(`agent-${k}`, name, k === kind, (_e, cx) => {
         this.cfg = { ...this.cfg, kind: k, model: null, effort: null };
@@ -3243,7 +3250,7 @@ export default class Chat extends View {
         }, t)))))
       .child(label("Folder"))
       .child(h_flex().gap(8).items_center()
-        .child(div().flex_1().min_w(0).truncate().px(10).py(6).rounded(8).bg(t.surface).border_1().border_color(t.border).text_size(12.5).child(tilde(folder)))
+        .child(div().flex_1().min_w(0).truncate().px(10).py(6).rounded(8).bg(t.surface).border_1().border_color(t.border).text_size(fsz(12.5)).child(tilde(folder)))
         .when(!machine, (el) => el.child(this.button("pick-folder", "Choose…", (_e, cx) => cx.spawn(async (cx) => {
           const f = await pickFolder({ prompt: "Where should the agent work?" });
           if (f) { this.cfg = { ...this.cfg, folder: f }; cx.notify(); }
@@ -3256,12 +3263,12 @@ export default class Chat extends View {
         if (e) this.cfg = { ...this.cfg, effort: e };
         cx.notify();
       }, t))
-      .child(div().pt(4).text_size(12).text_color(t.dim).child("Type your first message below, or press Start to begin without one."))
+      .child(div().pt(4).text_size(fsz(12)).text_color(t.dim).child("Type your first message below, or press Start to begin without one."))
       .when(running.length > 0, (el) => el.child(label("Or continue a running agent")).children(running.map((a) =>
         h_flex().id(`pick-${a.address}`).gap(8).px(10).py(7).rounded(8).cursor_pointer().bg(t.surface).hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.openBeside(a.address, cx))
-          .child(div().flex_none().font_semibold().text_size(12.5).child(AGENTS[agentKind(a)]))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(`${a.title || a.address} · ${tilde(a.foreground?.cwd ?? a.cwd ?? "")}`)))));
+          .child(div().flex_none().font_semibold().text_size(fsz(12.5)).child(AGENTS[agentKind(a)]))
+          .child(div().flex_1().min_w(0).truncate().text_size(fsz(12)).text_color(t.dim).child(`${a.title || a.address} · ${tilde(a.foreground?.cwd ?? a.cwd ?? "")}`)))));
     return div().id("new-scroll").flex_1().min_h(0).overflow_y_scrollbar()
       .child(h_flex().w_full().justify_center().px(24).py(24).child(form));
   }
@@ -3271,8 +3278,8 @@ export default class Chat extends View {
       .when(Boolean(this.searching) && (this.shown(), true), (el) => el.child(h_flex().id("search-bar").key_context("ChatSearch")
         .on_action("chat_search_close", (_e, cx) => this.closeSearch(cx))
         .h(38).px(12).gap(8).items_center().border_t(1).border_color(t.border).bg(t.background)
-        .child(div().flex_1().child(Input.new(this.search).w_full().h(28).px(10).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(12.5)))
-        .child(div().flex_none().text_size(12).text_color(t.dim).child(this.search.value().trim() ? `${this.matches ?? 0} match${this.matches === 1 ? "" : "es"}` : ""))
+        .child(div().flex_1().child(Input.new(this.search).w_full().h(28).px(10).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(fsz(12.5))))
+        .child(div().flex_none().text_size(fsz(12)).text_color(t.dim).child(this.search.value().trim() ? `${this.matches ?? 0} match${this.matches === 1 ? "" : "es"}` : ""))
         .child(div().id("search-close").flex_none().px(6).py(2).rounded(5).cursor_pointer().text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.closeSearch(cx)).child("×"))));
   }
@@ -3286,17 +3293,17 @@ export default class Chat extends View {
     const now = modes.find((m) => m.id === mode);
     const risky = mode === "bypassPermissions" || mode === "full";
     const busy = kind === "codex" && term?.status === "working";
-    const item = (m) => h_flex().id(`pm-${m.id}`).px(10).py(5).gap(8).rounded(6).text_size(12.5).text_color(busy ? t.dim : t.foreground)
+    const item = (m) => h_flex().id(`pm-${m.id}`).px(10).py(5).gap(8).rounded(6).text_size(fsz(12.5)).text_color(busy ? t.dim : t.foreground)
       .when(!busy, (el) => el.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.showModes = false; this.setMode(m, cx); cx.notify(); }))
       .child(div().w(12).flex_none().text_color(t.accent).child(m.id === mode ? "✓" : ""))
-      .child(v_flex().flex_1().min_w(0).child(div().child(m.label)).child(div().text_size(11).text_color(t.dim).child(m.desc)));
+      .child(v_flex().flex_1().min_w(0).child(div().child(m.label)).child(div().text_size(fsz(11)).text_color(t.dim).child(m.desc)));
     const menu = v_flex().w(300).p(4).rounded(10).border_1().border_color(t.border).bg(t.popover).shadow_lg()
-      .child(div().px(10).pt(8).pb(4).text_size(11).font_semibold().text_color(t.dim).child("Permissions"))
+      .child(div().px(10).pt(8).pb(4).text_size(fsz(11)).font_semibold().text_color(t.dim).child("Permissions"))
       .children(modes.map(item))
-      .when(busy, (el) => el.child(div().px(10).py(6).text_size(11).text_color(t.dim).child("Codex can switch once it stops working.")));
+      .when(busy, (el) => el.child(div().px(10).py(6).text_size(fsz(11)).text_color(t.dim).child("Codex can switch once it stops working.")));
     return Popover.new("mode-menu").anchor("bottom_right").open(Boolean(this.showModes))
       .on_open_change((open, cx) => { this.showModes = open; if (open) this.readMode(cx); cx.notify(); })
-      .trigger(div().id("mode").flex_none().h(30).px(10).flex().items_center().gap(5).rounded_full().cursor_pointer().text_size(12.5)
+      .trigger(div().id("mode").flex_none().h(30).px(10).flex().items_center().gap(5).rounded_full().cursor_pointer().text_size(fsz(12.5))
         .when(Boolean(this.showModes), (el) => el.bg(t.hover))
         .text_color(risky ? t.blocked : this.showModes ? t.foreground : t.muted)
         .hover((s) => s.bg(t.hover).text_color(risky ? t.blocked : t.foreground))
@@ -3319,8 +3326,8 @@ export default class Chat extends View {
     const efforts = cat?.models.find((m) => m.id === model)?.efforts
       ?? (kind === "claude" ? CLAUDE_EFFORTS : []);
     const pick = (m, e) => (_ev, cx) => { this.showModels = false; this.applyModel(m, e, cx, term); };
-    const heading = (text) => div().px(10).pt(8).pb(4).text_size(11).font_semibold().text_color(t.dim).child(text);
-    const item = (id, text, selected, action) => h_flex().id(id).px(10).py(5).gap(8).rounded(6).cursor_pointer().text_size(12.5)
+    const heading = (text) => div().px(10).pt(8).pb(4).text_size(fsz(11)).font_semibold().text_color(t.dim).child(text);
+    const item = (id, text, selected, action) => h_flex().id(id).px(10).py(5).gap(8).rounded(6).cursor_pointer().text_size(fsz(12.5))
       .text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click(action)
       .child(div().w(12).flex_none().text_color(t.accent).child(selected ? "✓" : ""))
       .child(div().flex_1().child(text));
@@ -3329,10 +3336,10 @@ export default class Chat extends View {
       .children((cat?.models ?? []).map((m) => item(`mm-${m.id}`, m.name, m.id === model, pick(m.id, null))))
       .when(efforts.length > 0, (el) => el.child(div().h(1).mx(6).my(4).bg(t.border)).child(heading("Effort"))
         .children(efforts.map((e) => item(`me-${e}`, e, e === effort, pick(null, e)))))
-      .when(term?.status === "working", (el) => el.child(div().px(10).py(6).text_size(11).text_color(t.dim).child("The agent is busy; a switch waits in its queue.")));
+      .when(term?.status === "working", (el) => el.child(div().px(10).py(6).text_size(fsz(11)).text_color(t.dim).child("The agent is busy; a switch waits in its queue.")));
     return Popover.new("model-menu").anchor("bottom_right").open(Boolean(this.showModels))
       .on_open_change((open, cx) => { this.showModels = open; cx.notify(); })
-      .trigger(div().id("model").w_auto().flex_none().h(30).px(10).flex().items_center().rounded_full().cursor_pointer().text_size(12.5)
+      .trigger(div().id("model").w_auto().flex_none().h(30).px(10).flex().items_center().rounded_full().cursor_pointer().text_size(fsz(12.5))
         .when(Boolean(this.showModels), (el) => el.bg(t.hover)).text_color(this.showModels ? t.foreground : t.muted)
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
         .tooltip(this.switching ? "Applying model settings…" : name).child(label))
@@ -3382,11 +3389,11 @@ export default class Chat extends View {
         cx.notify();
       })
       .when(start > 0, (el) => el.child(h_flex().w_full().justify_center().child(
-        div().id("earlier").px(10).py(4).rounded(8).cursor_pointer().bg(t.surface).text_size(12).text_color(t.muted)
+        div().id("earlier").px(10).py(4).rounded(8).cursor_pointer().bg(t.surface).text_size(fsz(12)).text_color(t.muted)
           .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.earlier = true; this.limit += PAGE; this.cacheShown(cx); cx.notify(); })
           .child(`Show earlier (${start})`))))
       .when(start === 0 && Boolean(this.truncated), (el) => el.child(h_flex().w_full().justify_center()
-        .child(div().id("load-earlier-history").px(10).py(4).rounded(8).cursor_pointer().bg(t.surface).text_size(12).text_color(t.muted)
+        .child(div().id("load-earlier-history").px(10).py(4).rounded(8).cursor_pointer().bg(t.surface).text_size(fsz(12)).text_color(t.muted)
           .hover(style => style.bg(t.hover)).on_click((_e, cx) => this.loadEarlier(cx))
           .child(this.historyLoading ? "Loading earlier history…" : "Load earlier history"))))
       .children(rendered.map((entry, index, entries) => {
@@ -3424,7 +3431,7 @@ export default class Chat extends View {
     }
     if (this.off > 40) {
       scroll.child(div().id("latest").absolute().bottom(12).right(16).px(10).py(5).rounded(12).cursor_pointer()
-        .bg(t.popover).border_1().border_color(t.border).text_size(12).text_color(t.foreground)
+        .bg(t.popover).border_1().border_color(t.border).text_size(fsz(12)).text_color(t.foreground)
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.off = 0; cx.notify(); }).child("↓ Latest"));
     }
     if (!this.t && !this.pending.length) {
@@ -3494,13 +3501,13 @@ export default class Chat extends View {
     const card = v_flex().w_full().min_w(0).px(12).py(10).gap(8).rounded(10)
       .bg(t.raised).border_1().border_color(active ? t.blocked : t.border)
       .child(h_flex().w_full().min_w(0).gap(8).items_center()
-        .child(div().flex_none().text_size(11).font_semibold().text_color(active ? t.blocked : t.muted).child("Question"))
-        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(statusText)));
+        .child(div().flex_none().text_size(fsz(11)).font_semibold().text_color(active ? t.blocked : t.muted).child("Question"))
+        .child(div().flex_1().min_w(0).truncate().text_size(fsz(11)).text_color(t.muted).child(statusText)));
     for (let qi = 0; qi < questions.length; qi++) {
       const q = questions[qi];
       const qBox = v_flex().w_full().min_w(0).gap(6);
       if (q.header && q.header !== q.question) {
-        qBox.child(div().text_size(11).font_semibold().text_color(t.muted).child(q.header));
+        qBox.child(div().text_size(fsz(11)).font_semibold().text_color(t.muted).child(q.header));
       }
       const body = q.question || q.title;
       if (body) {
@@ -3517,7 +3524,7 @@ export default class Chat extends View {
           if (hasDesc && opt.description) {
             optWrap.child(h_flex().w_full().min_w(0).gap(8).items_center()
               .child(btn)
-              .child(div().flex_1().min_w(0).text_size(11).text_color(t.muted).child(opt.description)));
+              .child(div().flex_1().min_w(0).text_size(fsz(11)).text_color(t.muted).child(opt.description)));
           } else {
             optWrap.child(btn);
           }
@@ -3538,14 +3545,14 @@ export default class Chat extends View {
           const escaped = b.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
           return div().w_full().min_w(0).px(10).py(8).rounded(8).bg(t.surface).border_1().border_color(t.border)
             .when(Boolean(mono), (el) => el.font_family(mono))
-            .child(TextView.html(`${id}-cmd-${i}`, `<pre>${escaped}</pre>`).selectable(true).text_size(12).line_height("18px").text_color(t.foreground)
+            .child(TextView.html(`${id}-cmd-${i}`, `<pre>${escaped}</pre>`).selectable(true).text_size(fsz(12)).line_height(lh(18)).text_color(t.foreground)
               .when(Boolean(mono), (el) => el.font_family(mono)));
         }
         const field = /^(Environment|Reason|Command|Directory|Working directory|Path|File|Host|Tool):\s+([\s\S]+)$/i.exec(b);
         if (field) {
-          return div().w_full().min_w(0).text_size(12.5).child(this.markdown(`${id}-${i}`, `**${field[1]}:** ${field[2]}`));
+          return div().w_full().min_w(0).text_size(fsz(12.5)).child(this.markdown(`${id}-${i}`, `**${field[1]}:** ${field[2]}`));
         }
-        return div().w_full().min_w(0).text_size(12.5).child(this.markdown(`${id}-${i}`, b));
+        return div().w_full().min_w(0).text_size(fsz(12.5)).child(this.markdown(`${id}-${i}`, b));
       }));
   }
 
@@ -3560,7 +3567,7 @@ export default class Chat extends View {
     const lines = (this.screen ?? "").split("\n").filter((l, i, a) => l.trim() || (i > 0 && a[i - 1].trim()));
     return v_flex().w_full().min_w(0).p(12).gap(10).rounded(10).border_1().border_color(t.blocked).bg(t.background)
       .child(h_flex().gap(8).items_center()
-        .child(div().flex_1().font_semibold().text_size(12.5).text_color(t.blocked).child(title))
+        .child(div().flex_1().font_semibold().text_size(fsz(12.5)).text_color(t.blocked).child(title))
         .child(this.button("go-term2", "Show terminal", (_e, cx) => this.showTerminal(cx), t)))
       .when(Boolean(q?.question), (el) => el.child(this.promptQuestion("question", q.question, t)))
       .when(Boolean(q), (el) => el.child(v_flex().w_full().min_w(0).gap(6).children(q.options.map((o, n) =>
@@ -3580,16 +3587,16 @@ export default class Chat extends View {
           })
           .child(div().flex_none().w(16).text_color(q.multi && q.boxes?.[n] && q.checked?.[n] ? t.accent : t.dim)
             .child(q.multi && q.boxes?.[n] ? (q.checked?.[n] ? "☑" : "☐") : String(n + 1)))
-          .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(o)))))
+          .child(div().flex_1().min_w(0).truncate().text_size(fsz(12.5)).child(o)))))
         .when(hasCustom && Boolean(this.promptInput), (row) => row.child(h_flex().gap(6).items_center()
-          .child(div().flex_1().child(Input.new(this.promptInput).text_size(12.5)))
+          .child(div().flex_1().child(Input.new(this.promptInput).text_size(fsz(12.5))))
           .child(this.button("choice-custom-send", "Send", (_e, cx) => {
             const v = this.promptInput.value().trim();
             if (!v) return;
             this.promptInput.set_value("");
             this.submitCustomPrompt(v, cx);
           }, t)))))
-      .when(!q && lines.length > 0, (el) => el.child(div().text_size(11.5).text_color(t.muted)
+      .when(!q && lines.length > 0, (el) => el.child(div().text_size(fsz(11.5)).text_color(t.muted)
         .when(Boolean(mono), (d) => d.font_family(mono))
         .child(this.markdown("screen", "~~~~text\n" + lines.slice(-24).join("\n") + "\n~~~~"))))
       .child(h_flex().gap(6).flex_wrap()
@@ -3651,7 +3658,7 @@ export default class Chat extends View {
       ? (term.report?.msg ? `${term.report.msg} · Waiting for your reply (sends now)` : "Waiting for your reply — next message sends now")
       : (term.report?.msg || "Working…");
     const icon = (id, text, action, on) => div().id(id).flex_none().size(30).rounded_full().flex().items_center().justify_center()
-      .cursor_pointer().text_size(16).text_color(t.muted).when(Boolean(on), (el) => el.bg(t.hover))
+      .cursor_pointer().text_size(fsz(16)).text_color(t.muted).when(Boolean(on), (el) => el.bg(t.hover))
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click((event, cx) => { cx.stop_propagation(); action(event, cx); }).child(text);
     const focusComposer = (_event, cx) => { cx.stop_propagation(); this.input.focus(); cx.notify(); };
@@ -3671,9 +3678,9 @@ export default class Chat extends View {
         .on_action("chat_menu_escape", (_e, cx) => this.menuKey({ keystroke: "escape" }, cx))
         .on_action("chat_menu_right", (_e, cx) => this.menuKey({ keystroke: "right" }, cx))
         .on_key_down((e, cx) => this.menuKey(e, cx))
-        .child(Textarea.new(this.input).w_full().px(16).pt(14).pb(6).border_0().bg(settings().dark ? t.background : "#00000000").text_size(14).line_height("21px").text_color(t.foreground)
+        .child(Textarea.new(this.input).w_full().px(16).pt(14).pb(6).border_0().bg(settings().dark ? t.background : "#00000000").text_size(fsz(14)).line_height(lh(21)).text_color(t.foreground)
           .token((tk) => div().px(6).rounded(6).bg(t.selected).text_color(t.accent).font_medium().child(tk.token.label ?? tk.token.text))))
-      .when(Boolean(chosen), (el) => el.child(h_flex().px(16).pb(2).gap(8).text_size(11.5).text_color(t.dim)
+      .when(Boolean(chosen), (el) => el.child(h_flex().px(16).pb(2).gap(8).text_size(fsz(11.5)).text_color(t.dim)
         .when(Boolean(chosen?.hint), (r) => r.child(div().flex_none().child(chosen.hint)))
         .child(div().flex_1().min_w(0).truncate().child(chosen?.desc ?? ""))))
       .child(h_flex().px(8).pb(8).gap(4).items_center()
@@ -3683,7 +3690,7 @@ export default class Chat extends View {
           .on_click((_event, cx) => cx.stop_propagation()).child(this.modeMenu(term, t)).child(this.modelMenu(term, t))))
         .when(Boolean(ctxBadge), (el) => el.child(div().flex_none().on_click((_event, cx) => cx.stop_propagation()).child(ctxBadge)))
         .child(div().id("send").flex_none().size(28).rounded_full().flex().items_center().justify_center().cursor_pointer()
-          .text_size(stop ? 12 : 16).font_semibold()
+          .text_size(fsz(stop ? 12 : 16)).font_semibold()
           .bg(stop ? t.accent : typed || this.dialog ? t.solid : t.raised)
           .text_color(stop ? t.accent_foreground : typed || this.dialog ? t.solid_foreground : t.dim)
           .hover((s) => s.opacity(0.85))
@@ -3693,17 +3700,17 @@ export default class Chat extends View {
     return v_flex().flex_none().bg(t.background).rounded_b(9).overflow_hidden().px(16).pb(14).gap(8)
       .when(Boolean(this.t?.issue?.usage), el => el.child(h_flex().w_full().justify_center().child(
         h_flex().w_full().max_w(900).px(10).py(8).gap(8).items_center().rounded(8).border_1().border_color(t.blocked)
-          .child(div().flex_1().min_w(0).text_size(12).text_color(t.blocked)
+          .child(div().flex_1().min_w(0).text_size(fsz(12)).text_color(t.blocked)
             .tooltip(this.t.issue.message).child("Usage limit reached · queued messages are paused"))
           .child(this.button("usage-terminal", "Show TUI", (_e, cx) => this.showTerminal(cx), t)))))
-      .when(showWorkingRow, (el) => el.child(h_flex().w_full().justify_center().child(h_flex().w_full().max_w(900).px(6).gap(8).items_center().text_size(12).text_color(waitingReply ? t.blocked : t.muted)
+      .when(showWorkingRow, (el) => el.child(h_flex().w_full().justify_center().child(h_flex().w_full().max_w(900).px(6).gap(8).items_center().text_size(fsz(12)).text_color(waitingReply ? t.blocked : t.muted)
         .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
         .child(div().flex_1().min_w(0).truncate().child(workingText))
         .when(inlineQueue, row => row.child(this.outboxView(t, true))))))
       .when((status === "blocked" || Boolean(this.idleAsk)) && Boolean(this.t), (el) => el.child(h_flex().w_full().justify_center()
         .child(div().w_full().max_w(900).child(this.promptBox("The agent is asking:", t)))))
       .when(Boolean(this.error), (el) => el.child(h_flex().w_full().justify_center()
-        .child(div().w_full().max_w(900).px(6).text_size(11.5).text_color(t.blocked).child(this.error))))
+        .child(div().w_full().max_w(900).px(6).text_size(fsz(11.5)).text_color(t.blocked).child(this.error))))
       .when(!this.dialog && this.outbox.failedItems.length > 0, el => el.child(this.failedSendsView(t)))
       .when(!this.dialog && this.outbox.visibleItems.length > 0 && !inlineQueue, el => el.child(this.outboxView(t)))
       .child(h_flex().w_full().justify_center().child(card));
@@ -3719,44 +3726,44 @@ export default class Chat extends View {
     const shell = (id, i) => h_flex().id(id).px(10).py(6).gap(10).rounded(8).items_center().cursor_pointer()
       .bg(i === sel ? t.selected : t.popover).on_hover(hover(i)).on_mouse_down("left", (_e, cx) => cx.stop_propagation());
     const draw = (r, i) => {
-      if (r.type === "header") return div().px(10).pt(6).pb(3).text_size(11).font_semibold().text_color(t.dim).child(r.label);
+      if (r.type === "header") return div().px(10).pt(6).pb(3).text_size(fsz(11)).font_semibold().text_color(t.dim).child(r.label);
       if (r.type === "sep") return div().h(1).mx(6).my(4).bg(t.border);
-      if (r.type === "back") return h_flex().id("menu-back").px(8).py(5).gap(6).items_center().rounded(8).cursor_pointer().text_size(12).font_semibold().text_color(t.muted)
+      if (r.type === "back") return h_flex().id("menu-back").px(8).py(5).gap(6).items_center().rounded(8).cursor_pointer().text_size(fsz(12)).font_semibold().text_color(t.muted)
         .hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { this.menuSub = null; this.menuSel = 0; this.input.focus(); cx.notify(); })
         .child(svg("mods/chat/icons/back.svg").size(14).text_color(t.dim)).child(r.label);
       const on = i === sel;
       if (r.type === "sub" || r.type === "action") return shell(`menu-${r.id}`, i).on_click((_e, cx) => { this.choose(r, cx); this.input.focus(); })
-        .child(icon(r.icon, on)).child(div().flex_1().text_size(13).child(r.label))
-        .when(Boolean(r.detail), (el) => el.child(div().text_size(12).text_color(t.dim).child(r.detail)))
+        .child(icon(r.icon, on)).child(div().flex_1().text_size(fsz(13)).child(r.label))
+        .when(Boolean(r.detail), (el) => el.child(div().text_size(fsz(12)).text_color(t.dim).child(r.detail)))
         .when(r.type === "sub", (el) => el.child(svg("mods/chat/icons/chevron.svg").size(13).text_color(t.dim)));
       if (r.type === "model") {
         const current = this.current().model;
         const here = r.m.id !== "default" && (r.m.id === current || r.m.resolved === current);
         return shell(`menu-m-${r.m.id}`, i).on_click((_e, cx) => this.choose(r, cx))
           .child(div().w(14).flex_none().text_color(t.accent).child(here ? "✓" : ""))
-          .child(div().flex_none().text_size(13).child(r.m.name))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(r.m.desc ?? ""));
+          .child(div().flex_none().text_size(fsz(13)).child(r.m.name))
+          .child(div().flex_1().min_w(0).truncate().text_size(fsz(12)).text_color(t.muted).child(r.m.desc ?? ""));
       }
       if (r.type === "session") return shell(`menu-s-${r.s.id}`, i).on_click((_e, cx) => this.choose(r, cx))
-        .child(div().flex_1().min_w(0).truncate().text_size(13).child(r.s.title))
-        .child(div().flex_none().text_size(12).text_color(t.dim).child(r.s.when));
+        .child(div().flex_1().min_w(0).truncate().text_size(fsz(13)).child(r.s.title))
+        .child(div().flex_none().text_size(fsz(12)).text_color(t.dim).child(r.s.when));
       if (r.type === "mode") {
         const now = this.current().mode;
         return shell(`menu-p-${r.mode.id}`, i).on_click((_e, cx) => this.choose(r, cx))
           .child(div().w(14).flex_none().text_color(t.accent).child(now === r.mode.id ? "✓" : ""))
-          .child(div().flex_none().text_size(13).child(r.mode.label))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(r.mode.desc));
+          .child(div().flex_none().text_size(fsz(13)).child(r.mode.label))
+          .child(div().flex_1().min_w(0).truncate().text_size(fsz(12)).text_color(t.muted).child(r.mode.desc));
       }
       const c = r.c;
       return shell(`cmd-${i}`, i).on_click((_e, cx) => this.choose(r, cx))
         .child(icon(KICON[c.kind] ?? "terminal", on))
         .child(h_flex().flex_none().max_w(nav ? 250 : Math.min(320, Math.max(160, this.width * 0.32))).gap(6).items_baseline().overflow_hidden()
-          .child(div().flex_none().text_size(13).font_medium().text_color(t.foreground).child(`/${c.label ?? c.name}`))
-          .when(!nav && Boolean(c.hint), (el) => el.child(div().min_w(0).truncate().text_size(12).text_color(t.dim).child(c.hint))))
-        .child(div().flex_1().min_w(0).truncate().text_size(12.5).text_color(on ? t.foreground : t.muted).child(c.desc))
-        .when(!nav && c.aliases.length > 0, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(c.aliases.map((a) => `/${a}`).join(" "))))
-        .when(!nav && Boolean(c.picker) && !c.action, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child("picker")));
+          .child(div().flex_none().text_size(fsz(13)).font_medium().text_color(t.foreground).child(`/${c.label ?? c.name}`))
+          .when(!nav && Boolean(c.hint), (el) => el.child(div().min_w(0).truncate().text_size(fsz(12)).text_color(t.dim).child(c.hint))))
+        .child(div().flex_1().min_w(0).truncate().text_size(fsz(12.5)).text_color(on ? t.foreground : t.muted).child(c.desc))
+        .when(!nav && c.aliases.length > 0, (el) => el.child(div().flex_none().text_size(fsz(11)).text_color(t.dim).child(c.aliases.map((a) => `/${a}`).join(" "))))
+        .when(!nav && Boolean(c.picker) && !c.action, (el) => el.child(div().flex_none().text_size(fsz(11)).text_color(t.dim).child("picker")));
     };
     // Long lists show a window around the highlighted row.
     const MAX = 9;
@@ -3769,12 +3776,12 @@ export default class Chat extends View {
       shown = body.slice(start, start + MAX);
     }
     const empty = this.menuSub === "resume" && !pickable.length
-      ? div().px(10).py(8).text_size(12.5).text_color(t.muted).child(this.sessions ? "No earlier conversations in this folder." : "Looking for conversations…") : null;
+      ? div().px(10).py(8).text_size(fsz(12.5)).text_color(t.muted).child(this.sessions ? "No earlier conversations in this folder." : "Looking for conversations…") : null;
     const card = v_flex().id("cmd-menu").p(6).gap(1).rounded(14).border_1().border_color(t.border).bg(t.popover).shadow_md()
       .when(nav && !this.menuSub, (el) => el.w(420)).when(!nav || Boolean(this.menuSub), (el) => el.w_full())
       .children([...head, ...shown].map((r) => draw(r, idx.get(r) ?? -1)))
       .when(Boolean(empty), (el) => el.child(empty))
-      .when(!nav || Boolean(this.menuSub), (el) => el.child(h_flex().px(10).pt(6).pb(2).gap(12).text_size(11).text_color(t.dim)
+      .when(!nav || Boolean(this.menuSub), (el) => el.child(h_flex().px(10).pt(6).pb(2).gap(12).text_size(fsz(11)).text_color(t.dim)
         .child(div().flex_1().child(pickable.length > MAX + 1 ? `${sel + 1} of ${pickable.length}` : ""))
         .child(nav ? "↑↓ choose · ← back · Enter pick · Esc close" : "↑↓ choose · Tab or Enter pick · Esc close")));
     return h_flex().w_full().max_w(900).child(card);
@@ -3811,14 +3818,14 @@ export default class Chat extends View {
       return v_flex().id("root").size_full().bg(t.background).text_color(t.foreground)
         .p(24).gap(12).items_center().justify_center().text_center()
         .child(h_flex().flex_none().gap(8).items_center().justify_center()
-          .child(this.button("identify-tui", "Show TUI", (_e, cx) => this.showTerminal(cx), t, true).w_auto().px(16).py(9).text_size(14))
-          .child(this.button("identify-retry", "Check again", (_e, cx) => { this.sig = null; this.check(cx); cx.notify(); }, t).w_auto().px(16).py(9).text_size(14)))
-        .child(v_flex().gap(4).items_center().text_center().text_size(12).text_color(t.muted)
+          .child(this.button("identify-tui", "Show TUI", (_e, cx) => this.showTerminal(cx), t, true).w_auto().px(16).py(9).text_size(fsz(14)))
+          .child(this.button("identify-retry", "Check again", (_e, cx) => { this.sig = null; this.check(cx); cx.notify(); }, t).w_auto().px(16).py(9).text_size(fsz(14))))
+        .child(v_flex().gap(4).items_center().text_center().text_size(fsz(12)).text_color(t.muted)
           .child("We couldn’t identify this conversation automatically.")
           .child("Run /status in TUI, leave the result visible, then return and check again."))
-        .when(Boolean(this.error), el => el.child(div().text_size(12).text_color(t.dim).child(String(this.error))));
+        .when(Boolean(this.error), el => el.child(div().text_size(fsz(12)).text_color(t.dim).child(String(this.error))));
     }
-    return v_flex().id("root").size_full().bg(t.background).rounded_b(9).overflow_hidden().text_color(t.foreground).text_size(14)
+    return v_flex().id("root").size_full().bg(t.background).rounded_b(9).overflow_hidden().text_color(t.foreground).text_size(fsz(14))
       .key_context(this.presentation ? "ChatRoot ChatPresentation" : "ChatRoot")
       .on_action("chat_no_split", (_e, cx) => cx.stop_propagation())
       .on_action("chat_search", (_e, cx) => (this.searching ? this.closeSearch(cx) : this.openSearch(cx)))

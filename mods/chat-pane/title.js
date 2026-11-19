@@ -48,7 +48,98 @@ export function hasActionRequired(terminal) {
   return ACTION_REQUIRED.test(first);
 }
 
-export function conversationTitle(terminal) {
+const agySessionTitles = new Map();
+const AGY_TITLES_KEY = "chat.agyTitles";
+const AGY_TITLE_TS_KEY = "chat.agyTitleTs";
+
+function loadJsonStorage(key) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    }
+  } catch {}
+  return {};
+}
+
+export function loadAgyTitles(sharedTitles = null) {
+  const stored = loadJsonStorage(AGY_TITLES_KEY);
+  return { ...stored, ...(sharedTitles && typeof sharedTitles === "object" ? sharedTitles : {}) };
+}
+
+export function saveAgyTitle(address, title, sharedTitles = null, setSharedFn = null, timestamp = Date.now()) {
+  const clean = typeof title === "string" ? title.trim() : "";
+  if (!address || !clean) return false;
+  const tsMap = loadJsonStorage(AGY_TITLE_TS_KEY);
+  const prevTs = Number(tsMap[address] ?? 0);
+  if (Number.isFinite(timestamp) && prevTs > 0 && timestamp < prevTs) return false;
+  const merged = loadAgyTitles(sharedTitles);
+  const changed = merged[address] !== clean || sharedTitles?.[address] !== clean;
+  agySessionTitles.set(address, clean);
+  if (Number.isFinite(timestamp) && timestamp > prevTs) {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(AGY_TITLE_TS_KEY, JSON.stringify({ ...tsMap, [address]: timestamp }));
+      }
+    } catch {}
+  }
+  if (!changed) return false;
+  const next = { ...merged, [address]: clean };
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(AGY_TITLES_KEY, JSON.stringify(next));
+  } catch {}
+  if (typeof setSharedFn === "function") setSharedFn(AGY_TITLES_KEY, next);
+  return true;
+}
+
+export function parseAgyHistoryRenames(jsonlText) {
+  const renames = new Map();
+  for (const line of (jsonlText ?? "").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch { continue; }
+    if (!obj || typeof obj.display !== "string" || typeof obj.conversationId !== "string") continue;
+    if (obj.type && obj.type !== "slash_command") continue;
+    const m = /^\/rename\s+(.+)$/i.exec(obj.display.trim());
+    if (!m) continue;
+    const title = m[1].trim();
+    const ts = Number(obj.timestamp) || 0;
+    const prev = renames.get(obj.conversationId);
+    if (title && (!prev || ts >= prev.timestamp)) {
+      renames.set(obj.conversationId, { title, timestamp: ts });
+    }
+  }
+  return renames;
+}
+
+export function isAgyTerminal(terminal) {
+  if (!terminal) return false;
+  const app = (terminal.report?.app ?? terminal.app ?? terminal.program?.key ?? "").toLowerCase();
+  if (app === "antigravity" || app === "agy") return true;
+  const argv0 = terminal.foreground?.argv?.[0] ?? terminal.argv?.[0] ?? "";
+  return /(?:^|[/\\])agy(?:\.exe)?$/i.test(argv0);
+}
+
+export function conversationTitle(terminal, sharedTitles = null) {
+  if (isAgyTerminal(terminal)) {
+    const key = terminal?.address ?? null;
+    const st = terminal?.report?.state ?? terminal?.status;
+    const reported = st === "working" ? terminal?.report?.msg?.trim() : "";
+    if (reported) {
+      if (key) agySessionTitles.set(key, reported);
+      return reported;
+    }
+    const merged = loadAgyTitles(sharedTitles);
+    const cached = (key && merged[key]) || (key && agySessionTitles.get(key)) || "";
+    if (cached) return cached;
+    const raw = (terminal?.title ?? "").trim();
+    if (!raw || /^agy(?:\s|$)/i.test(raw)) return "Antigravity";
+    return raw;
+  }
   const identity = codexTitleIdentity(terminal);
   if (!identity) {
     const raw = terminal?.title ?? "";

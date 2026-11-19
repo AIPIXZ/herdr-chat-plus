@@ -17,9 +17,216 @@ const CLAUDE_STATUS = /^(?:[·✻✽✶✳✢]\s+\S.*(?:\u2026|\.\.\.|\besc to i
 const SUMMARY = /^(Running|Ran|Reading|Read|Searching|Searched|Listing|Listed|Writing|Wrote|Editing|Edited|Updating|Updated|Fetching|Fetched|Calling|Called|Creating|Created|Stopping|Stopped)\b.*\b(commands?|files?|patterns?|director(y|ies)|tools?|agents?|pages?|tasks?|searches)\b|^\d+ tool calls?\b/i;
 
 // { kind: "text", text } | { kind: "run", title, out: [lines], time } | null
+const AGY_SPINNER = /^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]\s+(.+)$/;
+const AGY_BULLET = /^[○●]\s+(.+)$/;
+const AGY_THOUGHT_COLLAPSED = /^▸\s+Thought\b(.*)$/i;
+const AGY_MORE = /^…\s+\d+\s+more actions?\b/i;
+const AGY_TIP = /^\s*[└⎿]\s*Tip:/i;
+const AGY_TREE_LINE = /^\s*[└⎿├│]/;
+const AGY_ATTACHMENT = /^\s*▸\s*📎/;
+const AGY_ACTION_BULLET = /^[○●]\s+(?:Thought|Ran|Running|Explored|Exploring|Edited|Editing|Read|Reading|Searched|Searching|Listed|Listing|Wrote|Writing|Called|Calling|Updated|Created|Deleted)\b/i;
+const AGY_QUEUE_HINT = /^\s*Press\s+\S+\s+to\s+edit\s+queued\s+messages\b/i;
+const AGY_QUEUE_HEADER = /^\s*Queued(?:\s+messages?)?\s*[:·]?\s*$/i;
+const AGY_SHORT_STATUS = /^(Thinking|Running(?:\s+\w+){0,2}|Working|Reading(?:\s+\w+){0,2}|Searching(?:\s+\w+){0,2}|Editing(?:\s+\w+){0,2}|Writing(?:\s+\w+){0,2}|Waiting|Generating|Planning|Analyzing|Loading)(?:\.{1,3}|\u2026)?$/i;
+
+function extractAgyQueued(lines, end) {
+  let cursor = end - 1;
+  while (cursor >= 0 && (!lines[cursor].trim() || AGY_TIP.test(lines[cursor]) || CHROME_BANNER.test(lines[cursor]))) {
+    cursor--;
+  }
+  let hintIdx = cursor >= 0 && AGY_QUEUE_HINT.test(lines[cursor]) ? cursor : -1;
+  if (hintIdx < 0) {
+    // Also check if Agy renders the hint below the composer rule (e.g. in the footer).
+    const belowHint = lines.slice(end).some((l) => AGY_QUEUE_HINT.test(l));
+    if (!belowHint) return { queued: [], end };
+    hintIdx = cursor + 1;
+  }
+  let start = hintIdx;
+  const raw = [];
+  for (let i = hintIdx - 1; i >= 0; i--) {
+    const l = lines[i];
+    const trimmed = l.trim();
+    if (!trimmed) {
+      if (raw.length) break;
+      start = i;
+      continue;
+    }
+    if (AGY_QUEUE_HEADER.test(trimmed)) {
+      start = i;
+      break;
+    }
+    if (
+      /^─{10,}/.test(trimmed) ||
+      AGY_SPINNER.test(trimmed) ||
+      AGY_ACTION_BULLET.test(trimmed) ||
+      AGY_THOUGHT_COLLAPSED.test(trimmed) ||
+      AGY_MORE.test(trimmed) ||
+      AGY_TIP.test(l) ||
+      CHROME_BANNER.test(l)
+    ) {
+      break;
+    }
+    raw.unshift(l);
+    start = i;
+  }
+  const cleanQueued = (s) => {
+    let out = s.trim();
+    const trail = /\s*\((?:queued|(?:alt|ctrl|cmd|meta|opt)\+\w+\s+to\s+[^)]+|press\s+[^)]+)\)\s*$/i;
+    while (trail.test(out)) out = out.replace(trail, "").trim();
+    return out;
+  };
+  const queued = [];
+  for (const l of raw) {
+    const m = /^\s*(?:[>›↳•◦○●▸▹▶]|-\s)\s*(.+)$/.exec(l);
+    if (m) {
+      const text = cleanQueued(m[1]);
+      if (text) queued.push(text);
+    } else if (queued.length && /^\s{2,}\S/.test(l)) {
+      const cont = cleanQueued(l);
+      if (cont) queued[queued.length - 1] = `${queued[queued.length - 1]}\n${cont}`;
+    } else {
+      const text = cleanQueued(l);
+      if (text) queued.push(text);
+    }
+  }
+  return { queued, end: start };
+}
+
+function agyLiveSnapshot(lines) {
+  let end = lines.length;
+  for (let i = lines.length - 1; i > 0; i--) {
+    if (/^─{10,}/.test(lines[i]) && /^>(?:\s|$)/.test(lines[i + 1] ?? "")) {
+      end = i;
+      break;
+    }
+  }
+  const q = extractAgyQueued(lines, end);
+  const queued = q.queued;
+  end = q.end;
+  let from = 0;
+  for (let i = end - 1; i >= 0; i--) {
+    if (/^> \S/.test(lines[i])) {
+      from = i + 1;
+      break;
+    }
+  }
+  const promptLine = from > 0 ? lines[from - 1] : null;
+  // Skip continuation lines of a multi-line user prompt (including attachments and
+  // blank lines between prompt paragraphs) until an agent action or spinner appears.
+  let lastActionIdx = -1;
+  let spinnerTitle = null;
+  let blockOrdinal = 0;
+  const actionLines = [];
+  for (let i = from; i < end; i++) {
+    const l = lines[i].trimEnd();
+    if (!l || CHROME_BANNER.test(l) || /^─{10,}/.test(l) || AGY_TIP.test(l) || AGY_ATTACHMENT.test(l)) continue;
+    const sp = AGY_SPINNER.exec(l);
+    if (sp) {
+      spinnerTitle = sp[1].trim();
+      continue;
+    }
+    if (AGY_MORE.test(l)) {
+      lastActionIdx = i;
+      actionLines.push(l.trim());
+      continue;
+    }
+    if (AGY_THOUGHT_COLLAPSED.test(l)) {
+      lastActionIdx = i;
+      blockOrdinal++;
+      continue;
+    }
+    const b = AGY_BULLET.exec(l);
+    if (b) {
+      lastActionIdx = i;
+      blockOrdinal++;
+      const clean = b[1].replace(/\s*\(ctrl\+\w+ to [^)]+\)\s*$/i, "").trim();
+      actionLines.push(clean);
+    }
+  }
+  // Only read assistant streaming reply after at least one agent action/thought
+  // boundary (`○`, `●`, `▸ Thought`, `… N more actions`), so multi-paragraph user
+  // prompts (which Agy indents by 2 spaces, even across blank lines) never leak.
+  const replyStart = lastActionIdx >= 0 ? lastActionIdx + 1 : end;
+  const replyLines = [];
+  for (let i = replyStart; i < end; i++) {
+    const l = lines[i];
+    if (CHROME_BANNER.test(l) || /^─{10,}/.test(l) || AGY_TIP.test(l) || AGY_SPINNER.test(l.trimEnd())) break;
+    if (AGY_TREE_LINE.test(l) || AGY_ATTACHMENT.test(l)) continue;
+    if (!l.trim()) {
+      if (replyLines.length) replyLines.push("");
+      continue;
+    }
+    if (l.startsWith("  ")) {
+      const text = l.slice(2);
+      if (/\(ctrl\+\w+ to (?:expand|collapse)\)\s*$/i.test(text)) continue;
+      replyLines.push(text);
+    }
+  }
+  const textItem = replyLines.length ? textOf(replyLines) : null;
+  if (textItem) {
+    return {
+      item: textItem,
+      queued,
+      end,
+      from,
+      at: replyStart,
+      promptLine,
+      blockOrdinal: blockOrdinal + 1,
+      afterToolInBlock: lastActionIdx >= 0,
+      workedAfterAt: false,
+      statusAfterAt: Boolean(spinnerTitle),
+    };
+  }
+  let runTitle = null;
+  const outLines = [];
+  if (spinnerTitle) {
+    if (AGY_SHORT_STATUS.test(spinnerTitle)) {
+      runTitle = spinnerTitle;
+      for (const a of actionLines) {
+        if (a !== runTitle && !outLines.includes(a)) outLines.push(a);
+      }
+    } else {
+      runTitle = "Thinking…";
+      for (const a of actionLines) {
+        if (a !== spinnerTitle && !outLines.includes(a)) outLines.push(a);
+      }
+      outLines.push(spinnerTitle);
+    }
+  } else if (actionLines.length) {
+    const latest = actionLines[actionLines.length - 1];
+    const thoughtMatch = /^(Thought for \d+[hms](?: \d+[ms])*)\s*\((.+)\)$/.exec(latest);
+    if (thoughtMatch) {
+      runTitle = thoughtMatch[1];
+      for (const a of actionLines.slice(0, -1)) {
+        if (!outLines.includes(a)) outLines.push(a);
+      }
+      outLines.push(thoughtMatch[2].trim());
+    } else {
+      runTitle = latest;
+      for (const a of actionLines.slice(0, -1)) {
+        if (a !== runTitle && !outLines.includes(a)) outLines.push(a);
+      }
+    }
+  }
+  const runItem = runTitle ? { kind: "run", title: runTitle.trim(), out: outLines.slice(-6), time: null } : null;
+  return {
+    item: runItem,
+    queued,
+    end,
+    from,
+    at: lastActionIdx,
+    promptLine,
+    blockOrdinal,
+    afterToolInBlock: false,
+    workedAfterAt: false,
+    statusAfterAt: Boolean(spinnerTitle),
+  };
+}
+
 export function liveSnapshot(screen, kind) {
-  const k = kind === "codex" ? CODEX : CLAUDE;
   const lines = (screen ?? "").split("\n").filter((l) => !l.startsWith("[hc]"));
+  if (kind === "agy") return agyLiveSnapshot(lines);
+  const k = kind === "codex" ? CODEX : CLAUDE;
   // The message box at the bottom: its rule line (Claude) or its prompt (Codex).
   let end = lines.length;
   if (kind === "codex") { for (let i = lines.length - 1; i >= 0; i--) if (/^›(?:\s|$)/.test(lines[i])) { end = i; break; } }

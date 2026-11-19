@@ -14,7 +14,7 @@ export function menuAtBottom(screen) {
   // Claude keeps its input box (a rule, ❯, a rule, its footer) under the menu.
   const rules = lines.flatMap((l, i) => (RULE.test(l) ? [i] : []));
   const box = rules.at(-2);
-  if (box !== undefined && lines.length - box <= 6 && /^\s*❯/.test(lines[box + 1] ?? "")) lines = lines.slice(0, box);
+  if (box !== undefined && lines.length - box <= 6 && /^\s*[❯>]/.test(lines[box + 1] ?? "")) lines = lines.slice(0, box);
   const hint = lines.slice(-2).find((l) => HINT.test(l));
   return hint ? (/←|→|to change/.test(hint) ? "form" : "menu") : null;
 }

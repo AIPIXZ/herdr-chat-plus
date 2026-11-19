@@ -1,6 +1,7 @@
 // The / menu: which commands an agent takes, as its own menu lists them.
 import { exec } from "herdr";
 import { claudeInfo, codexCalls } from "./sdk.js";
+import { AGY_MODELS } from "./models.js";
 
 // Claude Code's built-in commands, as its app describes them (2.1.311). The
 // ones it only runs outside the terminal come from \`claude -p\` below too.
@@ -273,9 +274,103 @@ async function codexCommands(folder, on) {
   return { list: list.sort((x, y) => x.name.localeCompare(y.name)), models: catalog };
 }
 
+const AGY_PICKERS = new Set(["model", "effort", "permissions", "resume", "config", "settings", "skills", "mcp", "hooks", "plugins", "plugin", "help", "diff"]);
+
+const AGY = [
+  ["model", "Choose what model and reasoning effort to use", "[model]"],
+  ["effort", "Set reasoning effort level for the active model", "[low|medium|high|xhigh]"],
+  ["permissions", "Choose how Antigravity asks before acting"],
+  ["plan", "Switch to Plan mode or create a step-by-step plan", "[prompt]"],
+  ["goal", "Run a long-running task thoroughly until the goal is achieved", "<goal>"],
+  ["boost", "Deep thinking, strategic planning, multiple perspectives, and rigorous verification", "[prompt]"],
+  ["teamwork", "Coordinate a team of autonomous agents working together", "[prompt]"],
+  ["grill-me", "Interactive interview to resolve design decisions and align on a plan", "[prompt]"],
+  ["learn", "Persist a learned correction or setup into rules/skills for future tasks", "[instruction]"],
+  ["browser", "Web browsing, searching, or interacting with web applications", "[url|task]"],
+  ["schedule", "Run an instruction on a recurring schedule or one-time timer", "[schedule]"],
+  ["compact", "Summarize conversation context to free up the context window"],
+  ["clear", "Start a new conversation with empty context", "", ["new", "reset"]],
+  ["resume", "Resume a previous conversation", "[id]", ["continue"]],
+  ["fork", "Fork the current conversation"],
+  ["rewind", "Rewind the conversation to an earlier step", "", ["undo"]],
+  ["rename", "Rename the current conversation", "[name]"],
+  ["btw", "Ask a quick side question without interrupting the main conversation", "[question]", ["side"]],
+  ["diff", "View uncommitted changes and per-turn diffs"],
+  ["status", "Show model, mode, folder, session, and context usage"],
+  ["usage", "Show session token usage"],
+  ["config", "See and edit Antigravity settings", "", ["settings"]],
+  ["skills", "See the skills Antigravity can use"],
+  ["mcp", "See MCP servers and their configuration"],
+  ["hooks", "See configured lifecycle hooks"],
+  ["plugins", "See installed plugins", "", ["plugin"]],
+  ["memory", "See and edit what Antigravity remembers (GEMINI.md / AGENTS.md)"],
+  ["copy", "Copy Antigravity's last response"],
+  ["help", "Show every command"],
+  ["logout", "Sign out of Antigravity"],
+  ["exit", "Exit Antigravity", "", ["quit"]],
+];
+
+const AGY_HOST = {
+  model: { action: "model" },
+  effort: { action: "effort" },
+  permissions: { action: "permissions" },
+  resume: { action: "resume", aliases: ["continue"] },
+  status: { action: "status" },
+  usage: { action: "usage" },
+  config: { action: "config", aliases: ["settings"] },
+  skills: { action: "skills" },
+  mcp: { action: "mcp" },
+  hooks: { action: "hooks" },
+  plugins: { action: "plugins", aliases: ["plugin"] },
+  memory: { action: "memory" },
+  help: { action: "help" },
+  diff: { action: "diff" },
+  copy: { action: "copy" },
+};
+
+async function agyCommands(folder, on) {
+  const script = `
+for root in "$HOME/.gemini/config/skills" "$1/.gemini/skills" "$HOME/.gemini/antigravity-cli/skills" "$HOME/.gemini/antigravity-cli/builtin/skills" "$HOME/.gemini/skills" "$1/.agents/skills" "$1/.agent/skills"; do
+  [ -d "$root" ] || continue
+  for f in "$root"/*/SKILL.md "$root"/*/skill.md; do
+    [ -f "$f" ] || continue
+    printf "\\036%s\\n" "$(basename "$(dirname "$f")")"
+    head -n 25 "$f"
+  done
+done; true`;
+  const r = await sh(script, [folder ?? ""], on).catch(() => ({ stdout: "" }));
+  const have = new Set();
+  const list = AGY.map((c) => {
+    have.add(c[0]);
+    const host = AGY_HOST[c[0]];
+    return {
+      ...entry(c),
+      desc: host?.desc ?? c[1],
+      hint: host?.hint ?? c[2] ?? "",
+      aliases: [...new Set([...(c[3] ?? []), ...(host?.aliases ?? [])])],
+      kind: host ? "app" : "harness",
+      action: host?.action ?? null,
+      picker: AGY_PICKERS.has(c[0]),
+    };
+  });
+  for (const part of (r.stdout ?? "").split("\x1e").slice(1)) {
+    const nl = part.indexOf("\n");
+    const dirName = (nl < 0 ? part : part.slice(0, nl)).trim();
+    const body = nl < 0 ? "" : part.slice(nl + 1);
+    const fm = front(body);
+    const nameMatch = /^name:[ \t]*(.+)$/m.exec(/^---\n([\s\S]*?)\n---/.exec(body)?.[1] ?? "");
+    const skillName = (nameMatch?.[1]?.trim()?.replace(/^(["'])(.*)\1$/, "$2") || dirName).trim();
+    if (!skillName || have.has(skillName)) continue;
+    have.add(skillName);
+    list.push({ ...entry([skillName, fm.desc, fm.hint]), kind: "skill" });
+  }
+  return { list: list.sort((x, y) => x.name.localeCompare(y.name)), models: AGY_MODELS };
+}
+
 export async function loadCommands(kind, folder, on) {
   if (kind === "claude") return claudeCommands(folder, on);
   if (kind === "codex") return codexCommands(folder, on);
+  if (kind === "agy") return agyCommands(folder, on);
   return { list: [], models: [] };
 }
 

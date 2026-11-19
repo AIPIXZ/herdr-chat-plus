@@ -1,6 +1,6 @@
 import { openChat as openConversation, showTerminal, presentationPane } from "./presentation.js";
 import { qualifyAddress, machineOfTab } from "./identity.js";
-import { conversationTitle, hasActionRequired } from "./title.js";
+import { conversationTitle, hasActionRequired, isAgyTerminal, loadAgyTitles, saveAgyTitle, parseAgyHistoryRenames } from "./title.js";
 // A pane's header, for layouts that frame their panes:
 //   { "tab": "active", "pane": { "header": { "content": { "mod": "chat-pane" } } } }
 // Shows the program's icon (the app's program table), the agent's name or
@@ -14,9 +14,67 @@ import { conversationTitle, hasActionRequired } from "./title.js";
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { panes, props, run, theme, home, terminals, openOverlay, closeOverlay, spaces, shared, notify } from "herdr";
+import { panes, props, run, exec, theme, home, terminals, openOverlay, closeOverlay, spaces, shared, setShared, notify } from "herdr";
 import { herdr, away, hide, show, switchView } from "./backstage.js";
 
+
+const agyHistoryOffsets = new Map();
+const agyHistoryRenamesCache = new Map();
+
+async function syncAgyRenameOnSwitch(term) {
+  if (!term?.address || !isAgyTerminal(term)) return false;
+  const argv = [...(term.foreground?.argv ?? []), ...(term.argv ?? [])];
+  let cid = null;
+  for (let i = 0; i < argv.length; i++) {
+    const m = /^--conversation(?:=(.+))?$/.exec(argv[i] ?? "");
+    if (m) { cid = (m[1] ?? argv[i + 1] ?? "").trim() || null; break; }
+  }
+  const pid = Number(term.foreground?.pid ?? term.pid ?? 0) || 0;
+  const machine = term.address.includes("/") ? term.address.split("/")[0] : null;
+  const mKey = machine ?? "__local__";
+  const prevOffset = agyHistoryOffsets.get(mKey) ?? 0;
+  const script = `
+h="$HOME/.gemini/antigravity-cli/history.jsonl"
+[ -f "$h" ] || exit 0
+cid=${JSON.stringify(cid ?? "")}
+if [ -z "$cid" ] && [ ${pid} -gt 0 ]; then
+  cid=$(lsof -Fn -p ${pid} 2>/dev/null | grep -Eo '/antigravity-cli/(presence|conversations|brain)/[0-9a-f-]{36}' | head -n1 | grep -Eo '[0-9a-f-]{36}$')
+fi
+size=$(wc -c < "$h" 2>/dev/null | tr -d ' ')
+[ -n "$size" ] || exit 0
+prev=${prevOffset}
+if [ "$prev" -le 0 ] || [ "$prev" -gt "$size" ]; then
+  start=$(( size > 32768 ? size - 32768 : 1 ))
+else
+  start=$(( prev + 1 ))
+fi
+printf '%s\\n%s\\n' "$size" "$cid"
+if [ "$start" -le "$size" ]; then
+  tail -c +"$start" "$h" 2>/dev/null
+fi
+`;
+  const r = machine
+    ? await exec("hc", ["exec", "--on", machine, "sh", "-c", script]).catch(() => null)
+    : await exec("sh", ["-c", script]).catch(() => null);
+  if (!r || r.code !== 0 || !r.stdout) return false;
+  const nl1 = r.stdout.indexOf("\n");
+  const nl2 = nl1 >= 0 ? r.stdout.indexOf("\n", nl1 + 1) : -1;
+  if (nl1 < 0 || nl2 < 0) return false;
+  const size = Number(r.stdout.slice(0, nl1).trim());
+  const resolvedCid = r.stdout.slice(nl1 + 1, nl2).trim();
+  const delta = r.stdout.slice(nl2 + 1);
+  if (Number.isFinite(size) && size > 0) agyHistoryOffsets.set(mKey, size);
+  if (delta.trim()) {
+    for (const [k, v] of parseAgyHistoryRenames(delta)) {
+      const prev = agyHistoryRenamesCache.get(k);
+      if (!prev || v.timestamp >= prev.timestamp) agyHistoryRenamesCache.set(k, v);
+    }
+  }
+  if (!resolvedCid) return false;
+  const hit = agyHistoryRenamesCache.get(resolvedCid);
+  if (!hit) return false;
+  return saveAgyTitle(term.address, hit.title, shared("chat.agyTitles"), setShared, hit.timestamp || Date.now());
+}
 
 function icon(p, size, color) {
   if (!p?.icon) return null;
@@ -197,7 +255,7 @@ export default class Pane extends View {
     }
     const term = terminals().find((x) => x.address === p.terminal);
     const kind = `${p.app ?? ""} ${term?.report?.app ?? ""} ${term?.foreground?.name ?? ""} ${term?.program?.key ?? ""} ${term?.argv?.[0] ?? ""}`.toLowerCase();
-    if (!term || !/claude|codex/.test(kind)) return null;
+    if (!term || !/claude|codex|\b(agy|antigravity)\b/.test(kind)) return null;
     const linked = all.find((x) => x.mod === "chat" && qualifyAddress(links[x.pane], x.tab) === p.terminal);
     // A newly installed window may not have populated the shared map yet.
     const chat = linked ?? null;
@@ -210,6 +268,9 @@ export default class Pane extends View {
     this.switching = true;
     cx.spawn(async (cx) => {
       try {
+        if (typeof isAgyTerminal === "function" && isAgyTerminal(pair.term)) {
+          await syncAgyRenameOnSwitch(pair.term).catch(() => false);
+        }
         const target = { pane: pair.terminalPane ?? this.me()?.pane,
           tab: pair.tab ?? this.me()?.tab, terminal: pair.term.address };
         if (mode === "chat") await openConversation(target);
@@ -222,7 +283,13 @@ export default class Pane extends View {
 
   conversationHeader(p, pair, t) {
     const space = spaces().find((s) => s.tabs?.some((tab) => tab.id === (pair.chat?.tab ?? p.tab)));
-    const title = conversationTitle(pair.term) || pair.term.name || pair.term.report?.app || "Chat";
+    const sharedTitles = shared("chat.agyTitles") ?? {};
+    if (isAgyTerminal(pair.term) && pair.term.address && (pair.term.report?.state ?? pair.term.status) === "working") {
+      const liveTitle = pair.term.report?.msg?.trim();
+      if (liveTitle) saveAgyTitle(pair.term.address, liveTitle, sharedTitles, setShared);
+    }
+    const agyTitles = loadAgyTitles(shared("chat.agyTitles"));
+    const title = conversationTitle(pair.term, agyTitles) || pair.term.name || pair.term.report?.app || "Chat";
     const { blocked, questioning } = attentionState(pair.term, p);
     const chatMode = Boolean(props()?.presentation) || p.mod === "chat";
     const segment = (mode, label) => div().id(`view-${mode}-${p.pane}`).px(12).h(28).rounded(7)

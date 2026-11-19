@@ -12,12 +12,12 @@ function find(node, id) {
   return null;
 }
 
-// Claude Code or Codex: the agents the chat mod can show.
+// Claude Code or Codex (and Antigravity): the agents the chat mod can show.
 function isAgent(pane) {
   const term = pane.terminal && terminals().find((x) => x.address === pane.terminal);
   const argv0 = term?.argv?.[0]?.split("/").pop() ?? "";
   const what = `${term?.report?.app ?? ""} ${term?.foreground?.name ?? ""} ${term?.program?.key ?? ""} ${argv0}`.toLowerCase();
-  return what.includes("claude") || what.includes("codex");
+  return what.includes("claude") || what.includes("codex") || /\b(agy|antigravity)\b/.test(what);
 }
 
 // An agent terminal that moved out of its chat's tab (the chat's Hide terminal).

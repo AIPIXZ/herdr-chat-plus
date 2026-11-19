@@ -12,7 +12,7 @@ export const machineOf = (address) => (address?.includes("/") ? address.split("/
 export function agentKind(term) {
   const argv0 = term?.argv?.[0]?.split("/").pop() ?? "";
   const what = `${term?.report?.app ?? ""} ${term?.foreground?.name ?? ""} ${term?.program?.key ?? ""} ${argv0}`.toLowerCase();
-  return what.includes("claude") ? "claude" : what.includes("codex") ? "codex" : null;
+  return what.includes("claude") ? "claude" : what.includes("codex") ? "codex" : /\b(agy|antigravity)\b/.test(what) ? "agy" : null;
 }
 
 // Claude Code writes ~/.claude/sessions/<pid>.json with the live session id.
@@ -34,11 +34,37 @@ for p in "$1" $kids $grand; do
   { lsof -nP -p "$p" -Fn 2>/dev/null | sed -n 's/^n//p'; ls -l "/proc/$p/fd" 2>/dev/null | sed 's/.* -> //'; } | grep '/sessions/.*rollout-.*\\.jsonl$'
 done | sort -u | { files=$(cat); [ "$(printf '%s\\n' "$files" | grep -c .)" = 1 ] && printf '%s\\n' "$files"; }`;
 
+// Antigravity (agy) writes ~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript_full.jsonl.
+// Root user conversations always begin at step 0 with USER_INPUT; subagents begin with SYSTEM_MESSAGE.
+const AGY = `
+kids=$(pgrep -P "$1" 2>/dev/null | tr '\\n' ' ')
+grand=$(for k in $kids; do pgrep -P "$k" 2>/dev/null; done | tr '\\n' ' ')
+pids="$1 $kids $grand"
+ids=$(ps -o args= -p $pids 2>/dev/null | grep -Eo -- '--conversation[= ][0-9a-fA-F-]{36}' | grep -Eo '[0-9a-fA-F-]{36}')
+if [ -z "$ids" ]; then
+  ids=$(for p in $pids; do
+    { lsof -nP -p "$p" -Fn 2>/dev/null | sed -n 's/^n//p'; ls -l "/proc/$p/fd" 2>/dev/null | sed 's/.* -> //'; }
+  done | grep -Eo '/antigravity-cli/(presence|conversations|brain)/[0-9a-fA-F-]{36}' | grep -Eo '[0-9a-fA-F-]{36}$' | sort -u)
+fi
+best=""
+for id in $ids; do
+  d="$HOME/.gemini/antigravity-cli/brain/$id/.system_generated/logs"
+  log=""
+  if [ -f "$d/transcript_full.jsonl" ]; then log="$d/transcript_full.jsonl"
+  elif [ -f "$d/transcript.jsonl" ]; then log="$d/transcript.jsonl"
+  fi
+  [ -n "$log" ] || continue
+  head -n 1 "$log" 2>/dev/null | grep -q '"USER_INPUT"' || continue
+  if [ -z "$best" ] || [ "$log" -nt "$best" ]; then best="$log"; fi
+done
+[ -n "$best" ] && printf '%s\\n' "$best"`;
+
 export async function locate(term, kind) {
   const pid = term?.foreground?.pid;
   if (!pid) return null;
   const on = machineOf(term.address);
-  const r = await sh(kind === "codex" ? CODEX : CLAUDE, [String(pid), term.foreground.cwd ?? ""], on);
+  const script = kind === "codex" ? CODEX : kind === "agy" ? AGY : CLAUDE;
+  const r = await sh(script, [String(pid), term.foreground.cwd ?? ""], on);
   return r.stdout.trim().split("\n")[0] || null;
 }
 

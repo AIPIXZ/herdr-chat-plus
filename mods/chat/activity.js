@@ -88,17 +88,23 @@ export function toolDetails(item) {
     const changes=[],commands=[];let wait=false;
     for(const action of actions) {
       if(action.name==='apply_patch'&&typeof action.input==='string')changes.push(...patchChanges(action.input));
-      else if(/^(exec_command|Bash|shell|command_execution)$/.test(action.name)) {
-        const command=action.input?.cmd??action.input?.command;
+      else if(/^(exec_command|Bash|shell|command_execution|run_command)$/.test(action.name)) {
+        const command=action.input?.cmd??action.input?.command??action.input?.CommandLine??action.input?.command_line;
         if(typeof command==='string')commands.push(command);
         else if(Array.isArray(command))commands.push(command.join(' '));
       } else if(action.name==='write_stdin')wait=true;
-      else if(/^(Edit|MultiEdit)$/.test(action.name)&&action.input?.file_path) {
-        const edits=action.input.edits??[action.input];
+      else if(/^(Edit|MultiEdit|edit_file|replace_file_content|multi_replace_file_content)$/.test(action.name)&&(action.input?.file_path||action.input?.Path||action.input?.TargetFile)) {
+        const filePath=action.input.file_path??action.input.Path??action.input.TargetFile;
+        const rawEdits=action.input.edits??action.input.ReplacementChunks??action.input.replacement_chunks??[action.input];
+        const edits=rawEdits.map(edit=>({
+          old_string:edit?.old_string??edit?.Target??edit?.TargetContent??edit?.target_content,
+          new_string:edit?.new_string??edit?.Replacement??edit?.ReplacementContent??edit?.replacement_content,
+          replace_all:Boolean(edit?.replace_all),
+        }));
         if(edits.every(edit=>typeof edit.old_string==='string'&&typeof edit.new_string==='string'&&!edit.replace_all)) {
           const lines=value=>value?value.replace(/\n$/,'').split('\n'):[];
           const removed=edits.flatMap(edit=>lines(edit.old_string)),added=edits.flatMap(edit=>lines(edit.new_string));
-          changes.push({path:action.input.file_path,added:added.length,removed:removed.length,operation:'update',
+          changes.push({path:filePath,added:added.length,removed:removed.length,operation:'update',
             diff:[...removed.map(line=>'-'+line),...added.map(line=>'+'+line)].join('\n')});
         }
       }
@@ -106,10 +112,13 @@ export function toolDetails(item) {
     const todos = [];
     let planExplanation = "";
     for (const action of actions) {
-      if (action.name === "Write" && action.input?.file_path && !changes.some((c) => c.path === action.input.file_path)) {
-        const text = typeof action.input.content === "string" ? action.input.content : "";
+      const writePath = action.input?.file_path ?? action.input?.Path ?? action.input?.TargetFile;
+      if ((action.name === "Write" || action.name === "write_file") && writePath && !changes.some((c) => c.path === writePath)) {
+        const rawText = action.input.content ?? action.input.Content ?? action.input.CodeContent;
+        const text = typeof rawText === "string" ? rawText : "";
+        const lineCount = text ? text.replace(/\r\n/g, "\n").replace(/\n$/, "").split("\n").length : 0;
         const diff = text ? text.replace(/\r\n/g, "\n").split("\n").map((l) => `+${l}`).join("\n") : "";
-        changes.push({ path: action.input.file_path, operation: "add", diff });
+        changes.push({ path: writePath, added: lineCount, removed: 0, operation: "add", diff });
       } else if (action.name === "TodoWrite" && Array.isArray(action.input?.todos)) {
         for (const t of action.input.todos) {
           if (t?.content) todos.push({ text: String(t.content), activeForm: t.activeForm ?? "", status: t.status ?? "pending" });
@@ -138,12 +147,31 @@ export function toolDetails(item) {
 }
 export function withChanges(entries) {
   const result=[];let changed=new Map(),start=null;
+  let pendingThinking=null,pendingTools=null;
+  const flushWork=()=>{
+    if(pendingThinking){result.push(pendingThinking);pendingThinking=null;}
+    if(pendingTools){result.push(pendingTools);pendingTools=null;}
+  };
   const flush=()=>{
+    flushWork();
     if(changed.size)result.push({kind:'changes',key:`changes-${start}`,files:[...changed.values()]});
     changed=new Map();start=null;
   };
   for(const entry of entries) {
     if((entry.kind==='user'&&!entry.command)||(entry.kind==='notice'&&entry.event==='completed'))flush();
+    if(entry.kind==='thinking') {
+      const text=(entry.text??'').trim();
+      if(text) {
+        if(pendingThinking) {
+          if(pendingThinking.text!==text&&!pendingThinking.text.endsWith(text)) {
+            pendingThinking={...pendingThinking,text:`${pendingThinking.text}\n\n${text}`};
+          }
+        } else {
+          pendingThinking={...entry,text};
+        }
+      }
+      continue;
+    }
     if(entry.kind==='tools') {
       // The change card already summarizes a successful edit-only call.
       // Keep mixed calls, failures and pending edits in the activity stream.
@@ -152,19 +180,25 @@ export function withChanges(entries) {
         return !(raw.result!==null&&!detail.error&&detail.name==='Edit'&&detail.changes.length
           &&!detail.commands.length&&!detail.todos?.length&&!detail.images?.length);
       });
-      if(visible.length)result.push({...entry,items:visible});
-    } else result.push(entry);
-    if(entry.kind==='tools')for(const raw of entry.items) {
-      // Only acknowledged successful calls can claim an applied change.
-      const detail = toolDetails(raw);
-      if(raw.result===null||detail.error)continue;
-      for(const file of detail.changes) {
-        start??=entry.key;
-        const previous=changed.get(file.path);
-        changed.set(file.path,previous?{...file,added:previous.added==null||file.added==null?null:previous.added+file.added,
-          removed:previous.removed==null||file.removed==null?null:previous.removed+file.removed,diff:previous.diff+'\n'+file.diff}:file);
+      if(visible.length) {
+        if(pendingTools) pendingTools={...pendingTools,items:[...pendingTools.items,...visible]};
+        else pendingTools={...entry,items:[...visible]};
       }
+      for(const raw of entry.items) {
+        // Only acknowledged successful calls can claim an applied change.
+        const detail = toolDetails(raw);
+        if(raw.result===null||detail.error)continue;
+        for(const file of detail.changes) {
+          start??=entry.key;
+          const previous=changed.get(file.path);
+          changed.set(file.path,previous?{...file,added:previous.added==null||file.added==null?null:previous.added+file.added,
+            removed:previous.removed==null||file.removed==null?null:previous.removed+file.removed,diff:previous.diff+'\n'+file.diff}:file);
+        }
+      }
+      continue;
     }
+    flushWork();
+    result.push(entry);
   }
   flush();return result;
 }

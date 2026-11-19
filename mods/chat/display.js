@@ -34,12 +34,12 @@ export function toolSummary(items, running = false) {
   const groups = new Map(), edited = new Set();
   for (const item of items) {
     const name = item.name.toLowerCase();
-    const category = /^(edit|write|multiedit|apply_patch|file_change)$/.test(name) ? "edits"
-      : /^(read|read_file|file_read)$/.test(name) ? "reads"
-      : /^(grep|glob|search|file_search)$/.test(name) ? "searches"
-      : /^(bash|shell|exec_command|write_stdin|command_execution)$/.test(name) ? "commands"
-      : /^(web|websearch|webfetch|web_search|web_fetch)$/.test(name) ? "web calls"
-      : /^(task|agent|spawn_agent)$/.test(name) ? "agents" : item.name;
+    const category = /^(edit|write|multiedit|apply_patch|file_change|edit_file|write_file|replace_file_content|multi_replace_file_content)$/.test(name) ? "edits"
+      : /^(read|read_file|file_read|view_file|list_dir)$/.test(name) ? "reads"
+      : /^(grep|glob|search|file_search|grep_search|find_by_name)$/.test(name) ? "searches"
+      : /^(bash|shell|exec_command|write_stdin|command_execution|run_command)$/.test(name) ? "commands"
+      : /^(web|websearch|webfetch|web_search|web_fetch|search_web)$/.test(name) ? "web calls"
+      : /^(task|agent|spawn_agent|invoke_subagent|manage_subagents|swarm)$/.test(name) ? "agents" : item.name;
     if (category === "edits" && item.changes?.length) {
       if (item.commands?.length) groups.set("commands", (groups.get("commands") ?? 0) + item.commands.length);
       for (const file of item.changes) {
@@ -52,7 +52,7 @@ export function toolSummary(items, running = false) {
     if (category === "edits") {
       let input = item.input;
       if (typeof input === "string") { try { input = JSON.parse(input); } catch {} }
-      const path = input?.file_path ?? input?.path;
+      const path = input?.file_path ?? input?.path ?? input?.Path ?? input?.TargetFile;
       if (path && edited.has(path)) continue;
       if (path) edited.add(path);
     }

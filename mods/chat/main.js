@@ -12,7 +12,7 @@ import {
 import * as fs from "fs/promises";
 import { Buffer } from "buffer";
 import { createHash } from "crypto";
-import { Transcript } from "./parse.js";
+import { Transcript, parseAgyModel } from "./parse.js";
 import { inheritedHistory, rebaseHistory } from "./history.js";
 import { folderPoll } from "./poll.js";
 import { ownerPane, qualifyAddress, chatProps } from "./identity.js";
@@ -25,7 +25,7 @@ import { catalog, launchArgv, modelName, switchModel, CLAUDE_EFFORTS } from "./m
 import { emojify, emojiMatches } from "./emoji.js";
 import { parsePrompt, choose, toggleChoice, menuAtBottom } from "./prompt.js";
 import { loadCommands, matchCommands } from "./commands.js";
-import { askSide, sessionOf, control, listSessions, askCodexSide, codexCalls } from "./sdk.js";
+import { askSide, sessionOf, control, listSessions, listAgySessions, askCodexSide, codexCalls } from "./sdk.js";
 import { copyText, pasteImage, pickFiles, imageSize } from "./platform.js";
 import { live, liveSnapshot } from "./stream.js";
 import { CodexHandoff } from "./handoff.js";
@@ -49,7 +49,7 @@ const CACHE = "data/chat";
 const PAGE = 60;
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$/i;
-const AGENTS = { claude: "Claude Code", codex: "Codex" };
+const AGENTS = { claude: "Claude Code", codex: "Codex", agy: "Antigravity" };
 
 const sleep = (cx, ms) => new Promise((r) => cx.timer.after(ms, () => r()));
 const hash = (s) => createHash("sha1").update(s).digest("hex").slice(0, 16);
@@ -126,12 +126,28 @@ const CODEX_MODES = [
   { id: "full", label: "Full Access", desc: "Edits anywhere and uses the internet without asking", match: /^Full Access\b/ },
   { id: "read", label: "Read Only", desc: "Reads files; asks before any edit or the internet", match: /^Read Only\b/ },
 ];
-const modesOf = (kind) => (kind === "codex" ? CODEX_MODES : MODES);
+const AGY_MODES = [
+  { id: "auto", label: "Auto mode", desc: "Antigravity decides what's safe to run without asking" },
+  { id: "default", label: "Ask before edits", desc: "Antigravity asks before changing files or running commands" },
+  { id: "accept-edits", label: "Accept edits", desc: "Edits go through; other actions still ask" },
+  { id: "plan", label: "Plan mode", desc: "Antigravity plans and reads, and changes nothing" },
+];
+const modesOf = (kind) => (kind === "codex" ? CODEX_MODES : kind === "agy" ? AGY_MODES : MODES);
 // Shortcuts: ⌘ on macOS, Ctrl on Linux and Windows.
 const MAC = (() => { try { return appWindow().platform === "macos"; } catch { return true; } })();
 const shortcut = (key) => (MAC ? `⌘${key}` : `Ctrl+${key}`);
 const modeOf = (screen) => /accept edits on/i.test(screen) ? "acceptEdits" : /plan mode on/i.test(screen) ? "plan"
   : /auto mode on/i.test(screen) ? "auto" : /bypass permissions on/i.test(screen) ? "bypassPermissions" : "default";
+const agyFooterStatus = (screen) => {
+  const m = /(?:^|\s{2,})(auto|accept-edits|plan|default|yolo)\s+·\s+([^\n·]+?)(?:\s+·\s+(low|medium|high|xhigh|max))?\s*$/im.exec(screen ?? "");
+  if (!m) return null;
+  const mode = m[1].toLowerCase() === "yolo" ? "auto" : m[1].toLowerCase();
+  const rawLabel = m[2].trim();
+  const parsed = parseAgyModel(rawLabel);
+  const effort = m[3]?.toLowerCase() ?? parsed.effort ?? null;
+  return { mode, model: parsed.model, effort, label: rawLabel };
+};
+const agyModeOf = (screen) => agyFooterStatus(screen)?.mode ?? "auto";
 
 // Normalizes Codex (primary/secondary) and Claude (five_hour/seven_day) rate-limit snapshots.
 function normalizeRateLimits(raw) {
@@ -285,6 +301,8 @@ export default class Chat extends View {
     this.images = {};
     this.attach = [];
     this.loadOutbox();
+    this.tuiQueued = [];
+    this.tuiQueueBusy = false;
     this.pending = []; // sent, not yet in the log: { text, files, users } (users: user messages the log had then)
     this.off = 0;
     this.viewH = 0;
@@ -640,6 +658,7 @@ export default class Chat extends View {
           await sleep(cx, 350);
         }
         if (this.streamLoop === loop) {
+          await this.flushTail(cx);
           this.streamLoop = null;
           this.stream = null;
           this.running = null;
@@ -711,7 +730,18 @@ export default class Chat extends View {
         }
         const nextStream = handoff.visibleStream(turnState());
         const nextRun = res.running;
-        if (nextStream !== this.stream || JSON.stringify(nextRun) !== JSON.stringify(this.running)) {
+        let tuiQueuedChanged = false;
+        if (kind === "agy" && snap && !this.tuiQueueBusy) {
+          const nextQueued = snap.queued ?? [];
+          if (JSON.stringify(nextQueued) !== JSON.stringify(this.tuiQueued ?? [])) {
+            if (nextQueued.length > (this.tuiQueued?.length ?? 0) && this.outboxExpanded == null) {
+              this.outboxExpanded = true;
+            }
+            this.tuiQueued = nextQueued;
+            tuiQueuedChanged = true;
+          }
+        }
+        if (tuiQueuedChanged || nextStream !== this.stream || JSON.stringify(nextRun) !== JSON.stringify(this.running)) {
           this.stream = nextStream;
           this.running = nextRun;
           cx.notify();
@@ -744,6 +774,7 @@ export default class Chat extends View {
           this.streamLoop = null;
           this.stream = null;
           this.running = null;
+          if (!this.tuiQueueBusy) this.tuiQueued = [];
           if (this.chatVisible()) cx.notify();
         }
       }
@@ -843,17 +874,17 @@ export default class Chat extends View {
   runningView(t) {
     const r = this.running;
     const mono = settings().font_family;
-    // Always the same height, its lines never wrapping: the page doesn't move.
+    // Always bounded height so long output never shifts the page.
     const LINES = 6, LH = 17;
-    const out = r.out.slice(-LINES);
+    const out = (r.out ?? []).filter((l) => l != null).slice(-LINES);
     return v_flex().w_full().gap(6).px(12).py(9).rounded(10).border_1().border_color(t.border).bg(t.surface)
       .child(h_flex().h(20).gap(8).items_center()
         .child(div().flex_none().text_color(t.working).frames(SPINNER, 90))
         .child(div().flex_1().min_w(0).truncate().text_size(12.5).font_medium().when(Boolean(mono), (d) => d.font_family(mono)).child(r.title))
         .when(Boolean(r.time), (el) => el.child(div().flex_none().text_size(11.5).text_color(t.dim).child(r.time))))
-      .child(v_flex().h(LINES * LH + 12).px(10).py(6).rounded(6).bg(t.background).overflow_hidden().justify_end()
+      .when(out.length > 0, (el) => el.child(v_flex().h(Math.min(LINES, out.length) * LH + 12).px(10).py(6).rounded(6).bg(t.background).overflow_hidden().justify_end()
         .text_size(11.5).text_color(t.muted).when(Boolean(mono), (d) => d.font_family(mono))
-        .children(out.map((l) => div().h(LH).flex_none().truncate().child(l || " "))));
+        .children(out.map((l) => div().h(LH).flex_none().truncate().child(l || " ")))));
   }
 
   // Whether the log already has this reply text (in this turn).
@@ -1220,10 +1251,13 @@ export default class Chat extends View {
       const term = this.terminal(), mine = sessionOf(this.file) ?? threadOf(this.file);
       const folder = term?.foreground?.cwd ?? term?.cwd ?? "";
       cx.spawn(async (cx) => {
-        const list = this.current().kind === "codex"
+        const curKind = this.current().kind;
+        const list = curKind === "codex"
           ? ((await codexCalls(folder, [["thread/list", { cwd: folder, limit: 40, sourceKinds: ["cli", "vscode", "exec", "appServer"] }]], machineOf(this.term)).catch(() => [null]))[0]?.data ?? [])
             .map((x) => ({ id: x.id, title: (x.name ?? x.preview ?? "").split("\n")[0], at: (x.updatedAt ?? 0) * 1000 }))
-          : await listSessions(folder, machineOf(this.term)).catch(() => []);
+          : curKind === "agy"
+            ? await listAgySessions(folder, machineOf(this.term)).catch(() => [])
+            : await listSessions(folder, machineOf(this.term)).catch(() => []);
         this.sessions = list.filter((x) => x.id !== mine).map((x) => ({ ...x, when: ago(x.at) }));
         cx.notify();
       });
@@ -1249,19 +1283,51 @@ export default class Chat extends View {
     cx.spawn(async (cx) => this.deliver(text, [], cx));
   }
 
-  // Claude Code shows its permission mode in its footer; Codex's is what the
-  // log last said.
+  // Claude Code and Antigravity show their permission mode in their footer;
+  // Codex's is what the log last said.
   readMode(cx) {
-    if (this.current().kind !== "claude") return;
+    const kind = this.current().kind;
+    if (kind !== "claude" && kind !== "agy") return;
+    const target = this.term;
     cx.spawn(async (cx) => {
-      const r = await hc(["read", this.term, "--lines", "3"]).catch(() => null);
-      if (r) { this.mode = { id: modeOf(r.stdout), logged: this.t?.mode }; cx.notify(); }
+      const r = await hc(["read", target, "--lines", kind === "agy" ? "24" : "4"]).catch(() => null);
+      if (!r || this.term !== target) return;
+      if (kind === "agy") {
+        const footer = agyFooterStatus(r.stdout);
+        const id = footer?.mode ?? "auto";
+        let changed = this.mode?.id !== id;
+        this.mode = { id, logged: this.t?.mode };
+        if (footer?.model) {
+          const prev = this.liveAgyStatus;
+          if (prev?.model !== footer.model || prev?.effort !== footer.effort) {
+            this.liveAgyStatus = footer;
+            if (this.chosen && (this.chosen.model !== footer.model || this.chosen.effort !== footer.effort)) {
+              if (!this.switching) this.chosen = null;
+            }
+            changed = true;
+          }
+        }
+        if (!this.tuiQueueBusy) {
+          const nextQueued = liveSnapshot(r.stdout, "agy")?.queued ?? [];
+          if (JSON.stringify(nextQueued) !== JSON.stringify(this.tuiQueued ?? [])) {
+            if (nextQueued.length > (this.tuiQueued?.length ?? 0) && this.outboxExpanded == null) {
+              this.outboxExpanded = true;
+            }
+            this.tuiQueued = nextQueued;
+            changed = true;
+          }
+        }
+        if (changed) cx.notify();
+      } else {
+        this.mode = { id: modeOf(r.stdout), logged: this.t?.mode };
+        cx.notify();
+      }
     });
   }
 
-  // Claude Code switches permission mode with shift+tab, in a cycle: press it
-  // until the terminal's footer shows the mode picked. Codex picks one from its
-  // /permissions list, by the number in front of it.
+  // Claude Code and Antigravity switch permission mode with shift+tab, in a
+  // cycle: press it until the terminal's footer shows the mode picked. Codex
+  // picks one from its /permissions list, by the number in front of it.
   setMode(mode, cx) {
     const kind = this.current().kind;
     this.mode = { id: mode.id, logged: this.t?.mode };
@@ -1279,9 +1345,10 @@ export default class Chat extends View {
         notify({ title: `Codex didn't offer ${mode.label}`, body: "Pick it with /permissions in its terminal", level: "warning", timeout: 5000 });
         return cx.notify();
       }
+      const detect = kind === "agy" ? agyModeOf : modeOf;
       for (let i = 0; i < 6; i++) {
-        const screen = (await hc(["read", this.term, "--lines", "3"])).stdout;
-        if (modeOf(screen) === mode.id) break;
+        const screen = (await hc(["read", this.term, "--lines", "4"])).stdout;
+        if (detect(screen) === mode.id) break;
         await hc(["keys", this.term, "shift+tab"]);
         await sleep(cx, 350);
       }
@@ -1321,29 +1388,51 @@ export default class Chat extends View {
         if (what === "memory") {
           const files = kind === "codex"
             ? [[`${H}/.codex/AGENTS.md`, "Global"], ...ancestors(folder).flatMap((d) => [[`${d}/AGENTS.md`, d === folder ? "This project" : "Parent folder"], [`${d}/AGENTS.override.md`, "Override"]])]
-            : [[`${H}/.claude/CLAUDE.md`, "Your memory"], ...ancestors(folder).flatMap((d) => [[`${d}/CLAUDE.md`, d === folder ? "This project" : "Parent folder"], [`${d}/.claude/CLAUDE.md`, "This project"], [`${d}/CLAUDE.local.md`, "Local (not shared)"]]),
-              [`${H}/.claude/projects/${folder.replace(/[^A-Za-z0-9-]/g, "-")}/memory/MEMORY.md`, "Auto memory"]];
+            : kind === "agy"
+              ? [[`${H}/.gemini/GEMINI.md`, "Global GEMINI.md"], [`${H}/.gemini/AGENTS.md`, "Global AGENTS.md"], ...ancestors(folder).flatMap((d) => [[`${d}/GEMINI.md`, d === folder ? "This project" : "Parent folder"], [`${d}/AGENTS.md`, d === folder ? "This project (AGENTS.md)" : "Parent folder (AGENTS.md)"]])]
+              : [[`${H}/.claude/CLAUDE.md`, "Your memory"], ...ancestors(folder).flatMap((d) => [[`${d}/CLAUDE.md`, d === folder ? "This project" : "Parent folder"], [`${d}/.claude/CLAUDE.md`, "This project"], [`${d}/CLAUDE.local.md`, "Local (not shared)"]]),
+                [`${H}/.claude/projects/${folder.replace(/[^A-Za-z0-9-]/g, "-")}/memory/MEMORY.md`, "Auto memory"]];
           const have = await sizes(files.map(([f]) => f));
           e.sections = [{ rows: files.filter(([f]) => have[f]).map(([f, label]) => ({ label, detail: f.replace(H, "~"), status: kb(Number(have[f])), actions: [["Open", edit(f, label)]] })) }];
           if (!e.sections[0].rows.length) e.note = "No memory files yet.";
-          const main = `${folder}/${kind === "codex" ? "AGENTS.md" : "CLAUDE.md"}`;
+          const main = `${folder}/${kind === "codex" ? "AGENTS.md" : kind === "agy" ? "GEMINI.md" : "CLAUDE.md"}`;
           if (!have[main]) e.buttons.push(["New project memory", edit(main, "This project")]);
           if (kind === "codex") e.buttons.push(["Memory settings", say("/memories")]);
         } else if (what === "hooks") {
           let hooks = [];
           if (kind === "codex") hooks = ((await codexCalls(folder, [["hooks/list", {}]], on))[0]?.data ?? []).flatMap((x) => x.hooks ?? []);
-          else hooks = (await control(folder, null, [{ subtype: "get_hooks_listing" }], { on }))[0]?.hooks ?? [];
+          else if (kind === "agy") {
+            const raw = await exec("sh", ["-c", 'cat "$HOME/.gemini/config/hooks.json" 2>/dev/null'], { on });
+            try {
+              const parsed = JSON.parse(raw.stdout);
+              for (const [ev, list] of Object.entries(parsed?.hooks ?? parsed ?? {})) {
+                if (Array.isArray(list)) for (const h of list) hooks.push({ event: ev, ...h });
+              }
+            } catch {}
+          } else hooks = (await control(folder, null, [{ subtype: "get_hooks_listing" }], { on }))[0]?.hooks ?? [];
           e.sections = [{ rows: hooks.map((h) => ({ label: [h.event ?? h.eventName ?? h.hookEventName, h.matcher].filter(Boolean).join(" · ") || "Hook",
             detail: h.command ?? h.hook?.command ?? h.prompt ?? JSON.stringify(h.hooks ?? h), status: h.source ?? h.scope ?? "" })) }];
           if (!hooks.length) e.note = "No hooks set up.";
-          e.buttons.push(kind === "codex" ? ["Edit config.toml", edit(`${H}/.codex/config.toml`, "Codex settings")] : ["Edit your settings", edit(`${H}/.claude/settings.json`, "Claude Code settings")]);
-          if (kind !== "codex") e.buttons.push(["Edit project settings", edit(`${folder}/.claude/settings.json`, "Project settings")]);
+          e.buttons.push(kind === "codex" ? ["Edit config.toml", edit(`${H}/.codex/config.toml`, "Codex settings")]
+            : kind === "agy" ? ["Edit hooks.json", edit(`${H}/.gemini/config/hooks.json`, "Antigravity hooks")]
+            : ["Edit your settings", edit(`${H}/.claude/settings.json`, "Claude Code settings")]);
+          if (kind === "claude") e.buttons.push(["Edit project settings", edit(`${folder}/.claude/settings.json`, "Project settings")]);
         } else if (what === "mcp") {
           if (kind === "codex") {
             const list = (await codexCalls(folder, [["mcpServerStatus/list", {}]], on))[0]?.data ?? [];
             e.sections = [{ rows: list.map((m) => ({ label: m.name, detail: `${Object.keys(m.tools ?? {}).length} tools${m.toolsError ? ` · ${m.toolsError}` : ""}`,
               status: m.authStatus === "notLoggedIn" ? "needs login" : m.runtimeStatus ?? "",
               actions: m.authStatus === "notLoggedIn" ? [["Log in", say(`/mcp login ${m.name}`)]] : [] })) }];
+          } else if (kind === "agy") {
+            const raw = await exec("sh", ["-c", 'cat "$HOME/.gemini/config/mcp_config.json" 2>/dev/null'], { on });
+            let servers = {};
+            try { servers = JSON.parse(raw.stdout)?.mcpServers ?? {}; } catch {}
+            e.sections = [{ rows: Object.entries(servers).map(([k, v]) => ({
+              label: k,
+              detail: [v?.command, ...(v?.args ?? []), v?.url ?? v?.httpUrl].filter(Boolean).join(" "),
+              status: v?.disabled ? "disabled" : "on",
+            })) }];
+            e.buttons.push(["Edit mcp_config.json", edit(`${H}/.gemini/config/mcp_config.json`, "Antigravity MCP config")]);
           } else {
             const list = (await control(folder, null, [{ subtype: "mcp_status" }], { on, delay: 5, timeout: 30 }))[0]?.mcpServers ?? [];
             e.sections = [{ rows: list.map((m) => ({ label: m.name, detail: [m.transport, m.scope, m.urlHost ?? m.config?.command].filter(Boolean).join(" · "),
@@ -1367,6 +1456,9 @@ export default class Chat extends View {
             e.sections = m.map((x) => ({ title: x.name, rows: (x.plugins ?? []).filter((q) => q.installed).map((q) => ({ label: q.interface?.displayName ?? q.name,
               detail: q.interface?.shortDescription ?? "", status: q.enabled ? "on" : "off" })) })).filter((x) => x.rows.length);
             e.buttons.push(["Browse plugins", say("/plugins")]);
+          } else if (kind === "agy") {
+            e.sections = [{ rows: [] }];
+            e.buttons.push(["Browse plugins", say("/plugins")]);
           } else {
             const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
             const raw = await exec("sh", ["-c", 'cat "$HOME/.claude/plugins/installed_plugins.json" 2>/dev/null'], { on });
@@ -1384,6 +1476,12 @@ export default class Chat extends View {
             const c = (await codexCalls(folder, [["config/read", {}]], on))[0]?.config ?? {};
             e.sections = [{ rows: Object.entries(c).filter(([, v]) => v != null && !(typeof v === "object" && !Object.keys(v).length)).map(([k, v]) => ({ label: k, detail: show(v) })) }];
             e.buttons.push(["Edit config.toml", edit(`${H}/.codex/config.toml`, "Codex settings")], ["Open in terminal", say("/settings")]);
+          } else if (kind === "agy") {
+            const raw = await exec("sh", ["-c", 'cat "$HOME/.gemini/antigravity-cli/settings.json" 2>/dev/null'], { on });
+            let c = {};
+            try { c = JSON.parse(raw.stdout); } catch {}
+            e.sections = [{ rows: Object.entries(c).filter(([, v]) => v != null).map(([k, v]) => ({ label: k, detail: show(v) })) }];
+            e.buttons.push(["Edit settings.json", edit(`${H}/.gemini/antigravity-cli/settings.json`, "Antigravity settings")], ["Open in terminal", say("/config")]);
           } else {
             const [st] = await control(folder, null, [{ subtype: "get_settings" }], { on });
             e.sections = [{ rows: Object.entries(st?.effective ?? {}).map(([k, v]) => ({ label: k, detail: show(v) })) },
@@ -1431,6 +1529,26 @@ export default class Chat extends View {
           const codex = limits?.rateLimits ?? this.t?.limits ?? null;
           Object.assign(e, { codex });
 
+        }
+        e.loading = false;
+        return cx.notify();
+      }
+      if (kind === "agy") {
+        const screen = (await hc(["read", this.term, "--lines", "4"]).catch(() => ({ stdout: "" }))).stdout;
+        const { cat, model, effort } = this.current();
+        const ctx = this.t?.context;
+        if (card === "status") {
+          Object.assign(e, {
+            rows: [
+              ["Model", [modelName(cat?.models, model), effort].filter(Boolean).join(" · ")],
+              ["Mode", agyModeOf(screen)],
+              ["Folder", folder],
+              ["Session", sessionOf(this.file)],
+              ["Context", ctx?.window ? `${Math.round(100 * ctx.used / ctx.window)}% full · ${ctx.used.toLocaleString()} of ${ctx.window.toLocaleString()} tokens` : null],
+            ].filter(([, v]) => v),
+          });
+        } else {
+          Object.assign(e, { usage: {} });
         }
         e.loading = false;
         return cx.notify();
@@ -1669,6 +1787,9 @@ export default class Chat extends View {
     this.activeTail = null;
     this.codexHandoff?.reset();
     this.chosen = null;
+    this.liveAgyStatus = null;
+    this.tuiQueued = [];
+    this.tuiQueueBusy = false;
     this.side = { open: false, items: [], off: 0, viewH: 0, contentH: 0 };
     this.gen++;
     this.check(cx);
@@ -1729,6 +1850,9 @@ export default class Chat extends View {
       this.streamLoop = null;
       this.stream = null;
       this.running = null;
+      this.liveAgyStatus = null;
+      this.tuiQueued = [];
+      this.tuiQueueBusy = false;
       this.codexHandoff?.reset();
       if (prevAddress !== undefined) this.side = { open: false, items: [], off: 0, viewH: 0, contentH: 0 };
     }
@@ -1763,6 +1887,7 @@ export default class Chat extends View {
     if (seen) cx.spawn(async cx => { await seen; cx.notify(); });
     this.loadCmds(term, kind, cx);
     this.loadUsageLimits(term, kind, cx);
+    if (kind === "agy" && term?.state === "live") this.readMode(cx);
     if (kind && term?.status === "working") {
       if (kind === "codex" || kind === "claude") this.ensureFollow(kind, cx, 0);
       else if (!this.streamLoop) this.follow(kind, cx);
@@ -2095,7 +2220,7 @@ export default class Chat extends View {
     const title = codexTitleIdentity(term);
     const session = title?.prefix ?? sessionOf(this.file);
     const kind = agentKind(term);
-    const verified = ["codex", "claude"].includes(kind) && (kind !== "codex" || (this.sessionResolved
+    const verified = ["codex", "claude", "agy"].includes(kind) && (kind !== "codex" || (this.sessionResolved
       && (!title || !this.file || titleMatchesFile(title, this.file))));
     return {
       scope: verified ? outboxScope(term, session) : null,
@@ -2200,18 +2325,165 @@ export default class Chat extends View {
         .child(div().text_size(11).text_color(t.muted).child(this.outbox.retryReason(context, item.id) ?? item.error)))));
   }
 
+  visibleTuiQueued() {
+    if (!this.tuiQueued?.length) return [];
+    const norm = (s) => (s ?? "").replace(/\s+/g, " ").trim();
+    const outboxSet = new Set(
+      [...(this.outbox?.visibleItems ?? []), ...(this.pending ?? [])]
+        .map((item) => norm(item.text))
+        .filter(Boolean),
+    );
+    const scope = this.queueContext().scope;
+    const result = [];
+    for (let i = 0; i < this.tuiQueued.length; i++) {
+      const text = this.tuiQueued[i];
+      const key = norm(text);
+      if (!key || outboxSet.has(key)) continue;
+      result.push({
+        id: `tui-${i}`,
+        tuiIndex: i,
+        source: "tui",
+        text,
+        attachments: [],
+        state: this.tuiQueueBusy ? "sending" : "queued",
+        scope,
+      });
+    }
+    return result;
+  }
+
+  agyComposerHasText(screen) {
+    const lines = (screen ?? "").split("\n").filter((l) => !l.startsWith("[hc]"));
+    let start = -1;
+    for (let i = lines.length - 1; i > 0; i--) {
+      if (/^─{10,}/.test(lines[i]) && /^>(?:\s|$)/.test(lines[i + 1] ?? "")) {
+        start = i + 1;
+        break;
+      }
+    }
+    if (start < 0) return false;
+    for (let i = start; i < lines.length; i++) {
+      if (/^─{10,}/.test(lines[i])) break;
+      const cleaned = i === start ? lines[i].replace(/^>\s*/, "") : lines[i];
+      if (cleaned.trim()) return true;
+    }
+    return false;
+  }
+
+  async clearAgyComposer(target, cx) {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await hc(["keys", target, "ctrl+e", "ctrl+u"]).catch(() => null);
+      await sleep(cx, 60);
+      const r = await hc(["read", target, "--lines", "12"]).catch(() => null);
+      if (!r || !this.agyComposerHasText(r.stdout)) return;
+      await hc(["keys", target, "backspace"]).catch(() => null);
+      await sleep(cx, 50);
+    }
+  }
+
+  async clearAgyTuiQueue(target, maxCount, cx) {
+    await this.clearAgyComposer(target, cx);
+    const limit = Math.max(1, maxCount) + 2;
+    for (let i = 0; i < limit; i++) {
+      const before = await hc(["read", target, "--lines", "30"]).catch(() => null);
+      if (!before) break;
+      const queued = liveSnapshot(before.stdout, "agy")?.queued ?? [];
+      if (!queued.length) break;
+      await hc(["keys", target, "up"]).catch(() => null);
+      await sleep(cx, 120);
+      await this.clearAgyComposer(target, cx);
+    }
+  }
+
+  removeTuiQueued(index, cx) {
+    if (this.tuiQueueBusy || !this.term) return;
+    const snapshot = [...(this.tuiQueued ?? [])];
+    if (index < 0 || index >= snapshot.length) return;
+    const target = this.term;
+    const remaining = snapshot.filter((_, i) => i !== index);
+    this.tuiQueueBusy = true;
+    this.tuiQueued = remaining;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        await this.clearAgyTuiQueue(target, snapshot.length, cx);
+        for (const msg of remaining) {
+          if (this.term !== target) break;
+          await hc(["send", target, msg]).catch(() => null);
+          await sleep(cx, 140);
+        }
+      } finally {
+        this.tuiQueueBusy = false;
+        if (this.term === target) {
+          const r = await hc(["read", target, "--lines", "30"]).catch(() => null);
+          if (r && this.term === target) this.tuiQueued = liveSnapshot(r.stdout, "agy")?.queued ?? [];
+        }
+        cx.notify();
+      }
+    });
+  }
+
+  instantTuiQueued(index, cx) {
+    if (this.tuiQueueBusy || !this.term) return;
+    const snapshot = [...(this.tuiQueued ?? [])];
+    if (index < 0 || index >= snapshot.length) return;
+    const target = this.term;
+    const chosen = snapshot[index];
+    const remaining = snapshot.filter((_, i) => i !== index);
+    this.tuiQueueBusy = true;
+    this.tuiQueued = remaining;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        if (snapshot.length === 1) {
+          await hc(["keys", target, "alt+m"]).catch(() => null);
+          await sleep(cx, 180);
+        } else {
+          await this.clearAgyTuiQueue(target, snapshot.length, cx);
+          if (this.term !== target) return;
+          await hc(["send", target, chosen]).catch(() => null);
+          await sleep(cx, 120);
+          if (this.term !== target) return;
+          await hc(["keys", target, "alt+m"]).catch(() => null);
+          if (remaining.length > 0 && this.term === target) {
+            await sleep(cx, 280);
+            for (const msg of remaining) {
+              if (this.term !== target) break;
+              await hc(["send", target, msg]).catch(() => null);
+              await sleep(cx, 140);
+            }
+          }
+        }
+      } finally {
+        this.tuiQueueBusy = false;
+        if (this.term === target) {
+          const r = await hc(["read", target, "--lines", "30"]).catch(() => null);
+          if (r && this.term === target) this.tuiQueued = liveSnapshot(r.stdout, "agy")?.queued ?? [];
+        }
+        cx.notify();
+      }
+    });
+  }
+
   outboxView(t, inline = false) {
-    const items = this.outbox.visibleItems;
+    const outboxItems = this.outbox.visibleItems;
+    const tuiItems = this.visibleTuiQueued();
+    const items = [...outboxItems, ...tuiItems];
     if (!items.length) return null;
     const context = this.queueContext();
-    const hasError = items.some((item) => item.state === "error");
-    const expanded = Boolean(this.outboxExpanded ?? hasError);
+    const hasError = outboxItems.some((item) => item.state === "error");
+    const expanded = Boolean(this.outboxExpanded ?? (hasError || tuiItems.length > 0));
     const height = Math.min(240, this.outboxHeight ?? items.length * 80);
     const offset = Math.max(0, Math.min(this.outboxOffset ?? 0, (this.outboxHeight ?? height) - height));
+    const headerLabel = hasError
+      ? `${items.length} queued · delivery failed`
+      : outboxItems.length === 0 && tuiItems.length > 0
+        ? `${items.length} queued in TUI`
+        : `${items.length} queued`;
     const toggle = h_flex().id("outbox-toggle").px(12).py(inline ? 2 : 9).gap(8).items_center().justify_end()
       .cursor_pointer().text_size(12).text_color(hasError ? t.blocked : t.muted).hover(style => style.text_color(t.foreground))
       .on_click((_e, cx) => { this.outboxExpanded = !expanded; this.outboxHovered = null; cx.notify(); })
-      .child(hasError ? `${items.length} queued · delivery failed` : `${items.length} queued`)
+      .child(headerLabel)
       .child(div().text_size(11).child(expanded ? "▴" : "▾"));
     if (inline && !expanded) return toggle.flex_none();
     return h_flex().w_full().justify_center().child(v_flex().id("outbox").w_full().max_w(900)
@@ -2230,8 +2502,11 @@ export default class Chat extends View {
             }
           })
           .children(items.map((item) => {
-            const paused = context.scope !== item.scope;
-            const unavailable = paused || !["idle", "done", "working", "error"].includes(context.status);
+            const isTui = item.source === "tui";
+            const paused = !isTui && context.scope !== item.scope;
+            const unavailable = isTui
+              ? (this.tuiQueueBusy || !this.term)
+              : (paused || !["idle", "done", "working", "error"].includes(context.status));
             const hovered = this.outboxHovered === item.id || item.state === "error";
             return h_flex().id(`outbox-${item.id}`).w_full().min_h(44).flex_none().relative().px(12).py(10).gap(10).items_center()
               .on_hover((on, cx) => {
@@ -2244,8 +2519,8 @@ export default class Chat extends View {
                 .when(item.attachments.length > 0, row => row.child(h_flex().gap(6).flex_wrap().justify_end()
                   .children(item.attachments.map(file => file.image ? this.img(file.image.ref, t, 96, 64)
                     : div().text_size(11).text_color(t.muted).child(file.name)))))
-                .when(paused || item.state === "sending", row => row.child(div().text_size(11).text_color(t.dim)
-                  .child(paused ? "Paused · different session" : "Sending…")))
+                .when(paused || item.state === "sending" || (isTui && outboxItems.length > 0), row => row.child(div().text_size(11).text_color(t.dim)
+                  .child(paused ? "Paused · different session" : item.state === "sending" ? "Sending…" : "Queued in TUI")))
                 .when(Boolean(item.error), row => row.child(div().text_right().text_size(11).text_color(t.blocked).child(item.error))))
               // Reserve the action gutter so hover never reflows the message.
               .child(h_flex().w(90).h(18).flex_none().gap(4).items_center().justify_end()
@@ -2253,10 +2528,14 @@ export default class Chat extends View {
                   .child(div().id(`outbox-send-${item.id}`).flex_none().h(18).px(8).rounded_full().border_1().border_color(item.state === "error" ? t.blocked : t.input)
                     .flex().items_center().justify_center().cursor_pointer().text_size(10).text_color(t.foreground)
                     .hover(style => style.border_color(t.accent).text_color(t.accent))
-                    .on_click((_e, cx) => this.pumpOutbox(cx, item.id)).child(item.state === "error" ? "Retry" : "Instant")
+                    .on_click((_e, cx) => isTui ? this.instantTuiQueued(item.tuiIndex, cx) : this.pumpOutbox(cx, item.id))
+                    .child(item.state === "error" ? "Retry" : "Instant")
                     .when(unavailable, button => button.opacity(0.4)))
                   .child(div().id(`outbox-remove-${item.id}`).cursor_pointer().px(4).text_color(t.muted)
-                    .on_click((_e, cx) => { this.outbox.remove(item.id); this.saveOutbox(); cx.notify(); }).child("×"))));
+                    .on_click((_e, cx) => {
+                      if (isTui) this.removeTuiQueued(item.tuiIndex, cx);
+                      else { this.outbox.remove(item.id); this.saveOutbox(); cx.notify(); }
+                    }).child("×"))));
           }))))));
   }
 
@@ -2272,7 +2551,7 @@ export default class Chat extends View {
     const status = this.terminal()?.status;
     const busy = ["working", "blocked"].includes(status);
     const draining = Boolean(this.codexHandoff?.draining || this.streamLoop?.exiting);
-    const managed = ["codex", "claude"].includes(this.t?.kind ?? agentKind(this.terminal()));
+    const managed = ["codex", "claude", "agy"].includes(this.t?.kind ?? agentKind(this.terminal()));
     const now = Date.now();
     for (const p of this.pending) {
       if (!p.delivering && busy) {
@@ -2557,10 +2836,12 @@ export default class Chat extends View {
     }
     const r = await exec("hc", ["send", ...(options.idleOnly ? ["--if", "idle"] : []), target, message], { timeout: 180000 });
     this.error = r.code === 0 ? null : r.stderr.trim() || "send failed";
-    if (r.code === 0 && options.steer && agentKind(this.terminal()) === "claude"
+    const kind = agentKind(this.terminal());
+    if (r.code === 0 && options.steer && (kind === "claude" || kind === "agy")
       && this.terminal()?.status === "working" && options.valid?.()) {
-      const now = await hc(["keys", target, "ctrl+enter"]);
-      if (now.code !== 0) this.error = "Message reached Claude, but could not be sent immediately. Check TUI.";
+      if (kind === "agy") await sleep(cx, 100);
+      const now = await hc(["keys", target, kind === "agy" ? "alt+m" : "ctrl+enter"]);
+      if (now.code !== 0) this.error = `Message reached ${kind === "agy" ? "Antigravity" : "Claude"}, but could not be sent immediately. Check TUI.`;
       // The text was accepted already. Never duplicate it when the shortcut fails.
     }
     cx.notify();
@@ -2663,13 +2944,15 @@ export default class Chat extends View {
     // A model change in the terminal itself shows up in the log and wins.
     if (this.chosen?.logged !== undefined && this.t?.model && this.chosen.logged !== this.t.model
       && !this.t.model.startsWith(this.chosen.model)) this.chosen = null;
-    const logged = this.t?.model ? cat?.models.find((m) => this.t.model.startsWith(m.id))?.id ?? this.t.model : null;
+    const liveAgy = kind === "agy" ? this.liveAgyStatus : null;
+    const rawModel = liveAgy?.model ?? this.t?.model ?? null;
+    const logged = rawModel ? cat?.models.find((m) => rawModel === m.id || rawModel.startsWith(m.id))?.id ?? rawModel : null;
     return {
       kind, cat,
       model: this.chosen?.model ?? logged ?? cat?.model,
-      effort: this.chosen?.effort ?? this.t?.effort ?? cat?.effort,
+      effort: this.chosen?.effort ?? liveAgy?.effort ?? this.t?.effort ?? cat?.effort,
       // A pick here holds until the log reports a mode of its own.
-      mode: (this.mode && this.mode.logged === this.t?.mode ? this.mode.id : null) ?? this.t?.mode ?? (kind === "claude" ? "default" : null),
+      mode: (this.mode && this.mode.logged === this.t?.mode ? this.mode.id : null) ?? liveAgy?.mode ?? this.t?.mode ?? (kind === "claude" ? "default" : kind === "agy" ? "auto" : null),
     };
   }
 
@@ -3638,18 +3921,22 @@ export default class Chat extends View {
   footer(term, t) {
     const status = term?.status;
     const working = status === "working";
-    const inlineQueue = working && !this.dialog && this.outbox.visibleItems.length > 0
-      && !Boolean(this.outboxExpanded ?? this.outbox.visibleItems.some(item => item.state === "error"));
+    const tuiQueued = this.visibleTuiQueued();
+    const totalQueued = this.outbox.visibleItems.length + tuiQueued.length;
+    const hasQueueError = this.outbox.visibleItems.some(item => item.state === "error");
+    const inlineQueue = working && !this.dialog && totalQueued > 0
+      && !Boolean(this.outboxExpanded ?? (hasQueueError || tuiQueued.length > 0));
     const typed = Boolean(this.input.value().trim()) || this.attach.length > 0;
     // A command chosen from the menu: what it takes, under the message box.
     const chosen = !this.dialog && !this.slash() && this.input.content().tokens.length > 0 ? this.typedCommand() : null;
     const stop = working && !typed && !this.dialog;
     const ctxBadge = !this.dialog ? this.contextBadge(t) : null;
     const waitingReply = Boolean(this.t?.hasOpenQuestion?.());
-    const showWorkingRow = working && (waitingReply || !this.running || inlineQueue || (term.report?.msg && term.report.msg !== this.running.title));
+    const reportMsg = this.current().kind === "agy" ? null : term.report?.msg;
+    const showWorkingRow = working && (waitingReply || !this.running || inlineQueue || (reportMsg && reportMsg !== this.running.title));
     const workingText = waitingReply
-      ? (term.report?.msg ? `${term.report.msg} · Waiting for your reply (sends now)` : "Waiting for your reply — next message sends now")
-      : (term.report?.msg || "Working…");
+      ? (reportMsg ? `${reportMsg} · Waiting for your reply (sends now)` : "Waiting for your reply — next message sends now")
+      : (reportMsg || "Working…");
     const icon = (id, text, action, on) => div().id(id).flex_none().size(30).rounded_full().flex().items_center().justify_center()
       .cursor_pointer().text_size(16).text_color(t.muted).when(Boolean(on), (el) => el.bg(t.hover))
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
@@ -3705,7 +3992,7 @@ export default class Chat extends View {
       .when(Boolean(this.error), (el) => el.child(h_flex().w_full().justify_center()
         .child(div().w_full().max_w(900).px(6).text_size(11.5).text_color(t.blocked).child(this.error))))
       .when(!this.dialog && this.outbox.failedItems.length > 0, el => el.child(this.failedSendsView(t)))
-      .when(!this.dialog && this.outbox.visibleItems.length > 0 && !inlineQueue, el => el.child(this.outboxView(t)))
+      .when(!this.dialog && totalQueued > 0 && !inlineQueue, el => el.child(this.outboxView(t)))
       .child(h_flex().w_full().justify_center().child(card));
   }
 

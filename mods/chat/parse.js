@@ -126,12 +126,16 @@ export function summarize(input) {
   let v = input;
   if (typeof v === "string") { try { v = JSON.parse(v); } catch { return v.split("\n")[0]; } }
   if (v && typeof v === "object") {
-    for (const k of ["description", "command", "cmd", "file_path", "path", "pattern", "url", "query", "prompt", "name"]) {
+    for (const k of [
+      "description", "toolSummary", "command", "cmd", "CommandLine", "file_path", "path", "Path",
+      "TargetFile", "DirectoryPath", "pattern", "Pattern", "url", "query", "Query", "Role",
+      "prompt", "Prompt", "Description", "name", "Name", "Action", "action", "Message", "text",
+    ]) {
       const x = v[k];
       if (typeof x === "string" && x) return x.split("\n")[0];
       if (Array.isArray(x) && x.length) return x.join(" ").split("\n")[0];
     }
-    if (v.action) return summarize(v.action);
+    if (v.action && typeof v.action === "object") return summarize(v.action);
     const first = Object.values(v).find((x) => typeof x === "string");
     if (first) return first.split("\n")[0];
   }
@@ -143,7 +147,67 @@ const ASYNC_QUESTION_TOOLS = new Set([
   "request_user_input",
   "send_user_message_async",
   "send_message_to_user_async",
+  "ask_question",
 ]);
+
+export function decodeAgyToolArgs(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args ?? {};
+  const out = {};
+  for (const [k, v] of Object.entries(args)) {
+    if (typeof v === "string") {
+      try { out[k] = JSON.parse(v); } catch { out[k] = v; }
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+export function parseAgyModel(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s || /^none$/i.test(s)) return { model: null, effort: null };
+  if (/^orchestrator\s*\(carbon\)$/i.test(s)) return { model: "gemini-pro-orchestrator", effort: null };
+  if (/^orchestrator\s*\(argon\)$/i.test(s)) return { model: "gemini-pro-orchestrator-argon", effort: null };
+  let normalized = s
+    .toLowerCase()
+    .replace(/\s*\(([^)]*)\)\s*$/, "-$1")
+    .replace(/\s+/g, "-");
+  if (/^claude-sonnet-4[.-]6(?:-thinking)?$/.test(normalized)) {
+    return { model: "claude-sonnet-4-6", effort: null };
+  }
+  if (/^claude-opus-4[.-]6(?:-thinking)?$/.test(normalized)) {
+    return { model: "claude-opus-4-6-thinking", effort: null };
+  }
+  if (/^gpt-oss-120b(?:-medium)?$/.test(normalized)) {
+    return { model: "gpt-oss-120b-medium", effort: null };
+  }
+  const effortMatch = /^(gemini-[a-z0-9.-]+?)-(low|medium|high|xhigh|max)$/.exec(normalized);
+  if (effortMatch) {
+    return { model: effortMatch[1], effort: effortMatch[2] };
+  }
+  return { model: normalized, effort: null };
+}
+
+export function cleanAgyToolOutput(raw, rawError = null) {
+  let text = String(raw ?? "");
+  text = text.replace(
+    /^(The tool's output was truncated due to being too long\.[^\n]*\n+(?:Here is a preview with the middle of the output truncated:\n+)?)(?:Created At: [^\n]*\nCompleted At: [^\n]*\n)+/,
+    "$1",
+  );
+  text = text.replace(/^(?:Created At: [^\n]*\nCompleted At: [^\n]*\n)+/, "");
+  text = text.replace(/\n*YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS:[\s\S]*$/, "");
+  let exitCode = null;
+  const cmdMatch = /^(?:(The tool's output was truncated[^\n]*\n+(?:Here is a preview[^\n]*\n+)?))?Command exited with code (-?\d+)\.\r?\n(?:[\r\n]*Command output:\r?\n)?([\s\S]*)$/.exec(text);
+  if (cmdMatch) {
+    exitCode = Number(cmdMatch[2]);
+    const prefix = cmdMatch[1] ?? "";
+    const body = cmdMatch[3] ?? "";
+    text = (prefix + body).replace(/\r\n/g, "\n").replace(/\n$/, "");
+  } else if (!text.trim() && rawError) {
+    text = String(rawError);
+  }
+  return { text: text.trimEnd(), exitCode };
+}
 
 function normalizeQuestionList(items) {
   if (!Array.isArray(items)) return [];
@@ -214,7 +278,8 @@ export class Transcript {
     // Tokens the session used, per model, from its replies (each counted once).
     this.tokens = {};
     this.counted = new Map();
-    if (this.kind === "codex" || this.kind === "claude") {
+    this.pendingAgyTools = [];
+    if (this.kind === "codex" || this.kind === "claude" || this.kind === "agy") {
       this.turnState = {
         epoch: 0,
         turnId: null,
@@ -451,8 +516,143 @@ export class Transcript {
     try { d = JSON.parse(line); } catch { return; }
     try {
       if (this.kind === "codex") this.codex(d);
+      else if (this.kind === "agy") this.agy(d);
       else this.claude(d);
     } catch {}
+  }
+
+  agy(d) {
+    if (!d || typeof d !== "object") return;
+    if (d.type === "CHECKPOINT") {
+      const used = (d.input_tokens ?? 0) + (d.cache_read_tokens ?? 0) + (d.output_tokens ?? 0);
+      if (used > 0) this.context = { used, window: this.context?.window ?? 1000000 };
+      const summary = typeof d.content === "string"
+        ? d.content.replace(/^#\s*Resuming from a compaction\s*/i, "").trim()
+        : "";
+      this.push({ kind: "note", text: "Conversation compacted", compact: true, ...(summary ? { summary } : {}) });
+      return;
+    }
+    if (d.type === "ERROR_MESSAGE") {
+      return;
+    }
+    if (d.type === "SYSTEM_MESSAGE") {
+      return;
+    }
+    if (d.type === "USER_INPUT") {
+      this.pendingAgyTools = [];
+      const raw = typeof d.content === "string" ? d.content : toText(d.content);
+      const settingsBlock = /<USER_SETTINGS_CHANGE>([\s\S]*?)<\/USER_SETTINGS_CHANGE>/.exec(raw)?.[1] ?? "";
+      const modelChange = /changed setting `Model Selection` from [^\n]+? to ([^.\n]+)\./i.exec(settingsBlock);
+      if (modelChange) {
+        const parsed = parseAgyModel(modelChange[1]);
+        if (parsed.model) this.modelSettings(parsed.model, parsed.effort);
+      }
+      const reqMatch = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/.exec(raw);
+      let text = reqMatch
+        ? reqMatch[1].trim()
+        : raw
+            .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g, "")
+            .replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/g, "")
+            .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/g, "")
+            .trim();
+      const images = [];
+      for (const m of d.media ?? []) {
+        const uri = typeof m?.uri === "string" ? m.uri.replace(/^file:\/\//i, "") : "";
+        if (uri && (/^image\//i.test(m?.mime_type ?? "") || /\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$/i.test(uri))) {
+          images.push({ path: uri, ext: extOf(m?.mime_type) });
+        }
+      }
+      this.user(text, images);
+      return;
+    }
+    if (d.type === "PLANNER_RESPONSE") {
+      if (d.model) {
+        const parsed = parseAgyModel(d.model);
+        if (parsed.model) this.model = parsed.model;
+        if (parsed.effort) this.effort = parsed.effort;
+      }
+      const inTok = (d.input_tokens ?? 0) + (d.cache_read_tokens ?? 0);
+      const outTok = d.output_tokens ?? 0;
+      if (inTok > 0 || outTok > 0) {
+        this.context = { used: inTok + outTok, window: this.context?.window ?? 1000000 };
+        const modelKey = this.model ?? d.model ?? "agy";
+        const stepId = `agy-step-${d.step_index ?? this.next}`;
+        const bucket = (this.tokens[modelKey] ??= { input: 0, output: 0 });
+        const prev = this.counted.get(stepId);
+        if (!prev) {
+          bucket.input += inTok;
+          bucket.output += outTok;
+          this.counted.set(stepId, { output: outTok });
+        } else if (outTok > prev.output) {
+          bucket.output += outTok - prev.output;
+          prev.output = outTok;
+        }
+      }
+      if (typeof d.thinking === "string" && d.thinking.trim()) {
+        this.thinking(d.thinking);
+      }
+      const calls = Array.isArray(d.tool_calls) ? d.tool_calls : [];
+      if (typeof d.content === "string" && d.content.trim()) {
+        this.assistant(d.content.trim());
+        if (this.turnState) {
+          this.turnState.assistantCount++;
+          this.turnState.lastAssistantKey = this.last()?.key ?? null;
+          this.turnState.lastAssistantText = d.content.trim();
+          this.turnState.stage = calls.length ? "assistant_logged" : "completed";
+          if (!calls.length) this.turnState.turnStarted = false;
+        }
+      }
+      for (let idx = 0; idx < calls.length; idx++) {
+        const call = calls[idx];
+        if (!call || typeof call !== "object") continue;
+        const id = call.id ?? `agy-call-${d.step_index ?? this.next}-${idx}`;
+        const name = call.name ?? "tool";
+        const args = decodeAgyToolArgs(call.args);
+        const qs = parseAsyncQuestions(name, args);
+        if (qs) {
+          this.question(id, qs);
+          this.pendingAgyTools.push({ id, isQuestion: true });
+        } else {
+          this.toolUse(id, name, args);
+          this.pendingAgyTools.push({ id, isQuestion: false });
+        }
+        if (this.turnState) {
+          this.turnState.toolCount++;
+          if (this.turnState.stage !== "completed") this.turnState.stage = "awaiting_text";
+        }
+      }
+      return;
+    }
+    if (d.type === "GENERIC") {
+      const pending = this.pendingAgyTools.shift();
+      const cleaned = cleanAgyToolOutput(d.content, d.error);
+      const isErr = d.status === "ERROR" || d.status === "INVALID" || Boolean(d.error);
+      if (pending?.isQuestion) {
+        const answer = cleaned.text
+          .split("\n")
+          .map((l) => l.replace(/^A\d+:\s*/, "").trim())
+          .filter(Boolean)
+          .join(", ");
+        this.answerQuestion(answer || null, pending.id);
+        return;
+      }
+      if (pending?.id) {
+        const item = this.tools.get(pending.id);
+        if (item && Array.isArray(d.media)) {
+          for (const m of d.media) {
+            const uri = typeof m?.uri === "string" ? m.uri.replace(/^file:\/\//i, "") : "";
+            if (uri && (/^image\//i.test(m?.mime_type ?? "") || /\.(png|jpe?g|gif|webp|bmp|tiff?|heic)$/i.test(uri))) {
+              item.images.push({ path: uri, ext: extOf(m?.mime_type) });
+            }
+          }
+        }
+        this.toolResult(pending.id, cleaned.text, isErr);
+        if (item && cleaned.exitCode != null) {
+          item.exitCode = cleaned.exitCode;
+          item.error = item.error || cleaned.exitCode !== 0;
+        }
+      }
+    }
   }
 
   claude(d) {

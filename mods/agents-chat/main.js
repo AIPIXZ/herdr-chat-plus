@@ -84,6 +84,14 @@ function icon(p, size, color) {
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
+function isAgy(x) {
+  if (!x) return false;
+  const app = (x.report?.app ?? x.app ?? x.program?.key ?? "").toLowerCase();
+  if (app === "antigravity" || app === "agy") return true;
+  const argv0 = x.foreground?.argv?.[0] ?? x.argv?.[0] ?? "";
+  return /(?:^|[/\\])agy(?:\.exe)?$/i.test(argv0);
+}
+
 export default class Agents extends View {
   init(_props, cx) {
     if (props()?.sortMenu) return;
@@ -309,13 +317,42 @@ export default class Agents extends View {
     // agent's own title, never an automatic tab number unless two rows would
     // otherwise read the same.
     // Read the pane snapshot once: every host read copies the whole list into JS.
+    let storedAgyTitles = {};
+    try {
+      const raw = localStorage.getItem("chat.agyTitles");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") storedAgyTitles = parsed;
+      }
+    } catch {}
+    const sharedAgyTitles = shared("chat.agyTitles") ?? {};
+    const agyTitles = { ...storedAgyTitles, ...sharedAgyTitles };
+    let agyTitlesPatch = null;
     const leads = leadPanes(panes());
     const tabs = new Map(spaces().flatMap(s => s.tabs).map(tab => [tab.id, tab]));
     const labels = new Map(list.map(a => {
       const tab = tabs.get(a.tab);
       const many = tabCounts.get(a.tab) > 1;
-      return [a.address, tab ? title(many ? { ...tab, named: false } : tab, many ? a : leads.get(a.tab)) : (a.title || a.program?.name || "")];
+      const term = byAddr.get(a.address);
+      const agy = isAgy(term ?? a);
+      const st = term?.report?.state ?? term?.status ?? a.status;
+      const workingMsg = agy && st === "working" ? (term?.report?.msg?.trim() || null) : null;
+      if (workingMsg && agyTitles[a.address] !== workingMsg) {
+        agyTitlesPatch ??= { ...agyTitles };
+        agyTitlesPatch[a.address] = workingMsg;
+      }
+      const agyTitle = agy ? (workingMsg || agyTitles[a.address] || null) : null;
+      const baseLead = many ? a : (leads.get(a.tab) ?? a);
+      const lead = agyTitle
+        ? { ...baseLead, title: agyTitle }
+        : (agy && /^agy(?:\s|$)/i.test(baseLead?.title ?? "") ? { ...baseLead, title: "Antigravity" } : baseLead);
+      if (!tab) return [a.address, agyTitle || (agy && /^agy(?:\s|$)/i.test(a.title ?? "") ? "Antigravity" : a.title) || a.program?.name || ""];
+      return [a.address, title(many ? { ...tab, named: false } : tab, lead)];
     }));
+    if (agyTitlesPatch) {
+      try { localStorage.setItem("chat.agyTitles", JSON.stringify(agyTitlesPatch)); } catch {}
+      setShared("chat.agyTitles", agyTitlesPatch);
+    }
     const label = (a) => labels.get(a.address);
     const detail = new Map(list.map(a => [a.address, /^\d+$/.test(label(a)) ? null : label(a)]));
     const seen = {};

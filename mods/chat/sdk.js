@@ -113,8 +113,11 @@ export async function claudeInfo(folder, on) {
   return { ...init, commands: commands ?? init.commands ?? [] };
 }
 
-// The session a Claude log belongs to: its file name.
-export const sessionOf = (file) => /([0-9a-f-]{36})\.jsonl$/.exec(file ?? "")?.[1] ?? null;
+// The session a Claude or Antigravity log belongs to.
+export const sessionOf = (file) =>
+  /([0-9a-f-]{36})\.jsonl$/i.exec(file ?? "")?.[1]
+  ?? /\/brain\/([0-9a-f-]{36})\//i.exec(file ?? "")?.[1]
+  ?? null;
 
 // A side question about the session, with the earlier ones in this side chat.
 export async function askSide(folder, session, question, history, on) {
@@ -148,6 +151,43 @@ print(json.dumps(out))
 
 export async function listSessions(folder, on) {
   const r = await exec("python3", ["-c", SESSIONS, folder], { on });
+  try { return JSON.parse(r.stdout); } catch { return []; }
+}
+
+const AGY_SESSIONS = `
+import datetime, json, os, sqlite3, sys
+folder = sys.argv[1] if len(sys.argv) > 1 else ""
+db_path = os.path.expanduser("~/.gemini/antigravity-cli/conversation_summaries.db")
+out = []
+if os.path.isfile(db_path):
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        rows = conn.execute(
+            "SELECT conversation_id, title, preview, workspace_uris, last_modified_time "
+            "FROM conversation_summaries WHERE parent_conversation_id = '' ORDER BY last_modified_time DESC LIMIT 80"
+        ).fetchall()
+        conn.close()
+        for cid, title, preview, uris, mod_time in rows:
+            label = (title or preview or "").strip().split("\\n")[0][:120]
+            if not label:
+                continue
+            match_folder = not folder or (folder in (uris or ""))
+            ts = 0
+            try:
+                dt = datetime.datetime.fromisoformat(str(mod_time).replace("Z", "+00:00"))
+                ts = int(dt.timestamp() * 1000)
+            except Exception:
+                pass
+            out.append({"id": cid, "title": label, "at": ts, "match": match_folder})
+    except Exception:
+        pass
+matched = [x for x in out if x.get("match")]
+chosen = matched if matched else out
+print(json.dumps([{"id": x["id"], "title": x["title"], "at": x["at"]} for x in chosen[:40]]))
+`;
+
+export async function listAgySessions(folder, on) {
+  const r = await exec("python3", ["-c", AGY_SESSIONS, folder ?? ""], { on });
   try { return JSON.parse(r.stdout); } catch { return []; }
 }
 

@@ -1,6 +1,6 @@
 # Herdr Chat Plus
 
-A native [Herdr](https://herdr.dev) layout for existing Claude Code and Codex terminals. **Chat / TUI** switches how you see the same running terminal. Chat does not create another shared terminal pane; TUI keeps Herdr's normal splits.
+A native [Herdr](https://herdr.dev) layout for existing Claude Code, Codex, and Antigravity (Agy) terminals. **Chat / TUI** switches how you see the same running terminal. Chat does not create another shared terminal pane; TUI keeps Herdr's normal splits.
 
 Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original MIT license and author attribution are retained. Herdr Chat Plus is an independent layout project, not an official Herdr distribution.
 
@@ -10,7 +10,7 @@ Based on [naruse/herdr-chat](https://github.com/naruse/herdr-chat). The original
 
 ## Features
 
-- **Chat and TUI, one agent.** Switch views of the same Claude Code or Codex terminal, including agents on remote machines.
+- **Chat and TUI, one agent.** Switch views of the same Claude Code, Codex, or Antigravity (Agy) terminal, including agents on remote machines.
 - **Files and changes beside the conversation.** Preview Markdown, source files and recorded diffs in a sidebar; hover a changed file for a quick diff preview.
 - **Follow-ups without interrupting.** Queue messages while the agent works, send a selected message instantly, and retry failed deliveries.
 - **A comfortable native chat UI.** Rich Markdown, attachments, image preview with zoom and copy, and matching Catppuccin light and dark themes.
@@ -23,7 +23,7 @@ In **Settings → Machines**, save multiple SSH addresses or aliases for the sam
 
 ## Install and update
 
-Requirements: Herdr App, Python 3.9+, and Claude Code or Codex on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.
+Requirements: Herdr App, Python 3.9+, and Claude Code, Codex, or Antigravity (Agy) on the machine running the agent. Development checks currently use **Herdr App 0.1.15 on macOS**. This is a development snapshot, not a validated cross-platform release.
 
 Project repository: [AIPIXZ/herdr-chat-plus](https://github.com/AIPIXZ/herdr-chat-plus).
 
@@ -61,7 +61,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for module ownership and shared-code rule
 
 ## Limits
 
-- Transcript adapters currently support Claude Code and Codex. Other agents, including Grok, need an adapter.
+- Transcript adapters currently support Claude Code, Codex, and Antigravity (Agy). Other agents, including Grok, need an adapter.
 - Existing Codex terminals may require `/status` to establish identity. Chat does not choose the newest log as a substitute for identity.
 - Queue state is local to this Chat client. Automatic delivery requires Herdr running; other clients have separate queues.
 - File previews are read-only and refresh on request. Diff is the historical patch recorded in the transcript; File is current disk content. Source previews stop at 400,000 characters; binary image previews are limited to 5 MiB and can be opened in the zoom window. Line references are displayed in the path but do not yet move the code editor cursor.

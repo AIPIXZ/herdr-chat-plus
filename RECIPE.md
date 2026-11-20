@@ -1,6 +1,6 @@
 # Herdr Chat Plus
 
-A native chat workspace for existing Claude Code and Codex terminals: Chat/TUI switching, file and diff previews, queued follow-ups, and light/dark themes.
+A native chat workspace for existing Claude Code, Codex, and Antigravity (Agy) terminals: Chat/TUI switching, file and diff previews, queued follow-ups, and light/dark themes.
 
 Chat is a personal layout presentation, not a core mod pane. The local
 `conversation-view` stack switches between `main` (the real tab split tree)
